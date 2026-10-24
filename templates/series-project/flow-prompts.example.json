@@ -1,0 +1,17 @@
+{
+  "series": "Series title",
+  "styleAnchor": "Reusable visual style description. Keep text out of generated art and preserve the caption-safe area.",
+  "characterAnchors": [
+    { "name": "Character name", "description": "Stable appearance and continuity details." }
+  ],
+  "propAnchors": [
+    { "name": "Recurring prop", "description": "Stable design, owner, starting state, and state changes." }
+  ],
+  "scenes": [
+    {
+      "episode": "Part 1",
+      "scene": "Scene 1",
+      "prompt": "Describe one full-frame vertical story moment, composition, action, lighting, and emotional beat. No titles, captions, labels, panels, or prompt text in the image."
+    }
+  ]
+}

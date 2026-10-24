@@ -1,0 +1,32 @@
+# Local-only project content and generated files
+/projects/**
+!/projects/README.md
+/output/**
+!/output/README.md
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Generated media (episode-specific files should normally remain local)
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.mp3
+*.wav
+*.mp4
+*.mov
+*.srt
+*.vtt
+
+# Tool and OS artifacts
+node_modules/
+.cache/
+.DS_Store
+Thumbs.db
+*.log
