@@ -1,0 +1,10 @@
+{
+  "mcp": {
+    "servers": {
+      "boords": {
+        "type": "remote",
+        "url": "https://app.boords.com/mcp"
+      }
+    }
+  }
+}
