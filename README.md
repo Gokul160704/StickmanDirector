@@ -24,6 +24,17 @@ node scripts/build-flow-prompt-pack.mjs projects/<slug>/flow-prompts.json
 
 The script writes a Markdown prompt pack beside the JSON. Copy prompts into the signed-in Google Flow browser tab. It does not call image APIs, generate media, or spend credits.
 
+## Animate and render an episode
+
+The local engine draws the stickman and interpolates its motion in code over approved Flow backgrounds. See [engine setup](docs/engine-setup.md) and the [example manifest](templates/engine-project/episode.example.json). Once your episode project has its image plates and narration WAV:
+
+```powershell
+npm ci
+npm run render:episode -- projects/<slug>/episode.json
+```
+
+The MP4 and SRT are written under ignored `output/engine/`. The legacy renderer remains available for existing projects.
+
 ## Workflow
 
 1. Develop the premise, series bible, character and prop continuity, episode arcs, narration, captions, and scene prompts using the installed `directing-stickman-videos` skill.

@@ -24,6 +24,8 @@ Final scene art must depict one complete vertical story moment. Reject scene car
 
 Attach approved Flow outputs to the matching Boords frames or Asset Library. Use 9:16 still-image-first scenes for Shorts and Reels. Prepare narration according to [AUDIO.md](../AUDIO.md), then assemble narration, captions, sound, and subtle motion in an editor. Use video generation only when it adds clear value.
 
+For code-driven stickman motion, place approved Flow background plates and the approved narration WAV in the local episode project, describe the shots, poses, and captions in its engine manifest, then render with the local Node engine. See [engine setup](engine-setup.md). The character is vector-drawn and keyframed by code; Flow supplies backgrounds only. Keep the same script and exact spoken text in the local project and Boords.
+
 ## 6. Keep the repo clean
 
 Reusable docs, utilities, and templates belong in Git. `projects/` and `output/` are local-only by default. See [repository policy](repository-policy.md).

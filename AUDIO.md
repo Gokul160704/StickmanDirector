@@ -26,3 +26,26 @@ Use turn-level style metadata for sustained delivery changes such as a whisper t
 6. Review audio against the approved text and final scene timing; retime captions after the final audio is accepted.
 
 Google Flow's image workflow uses the signed-in Flow browser tab directly and does not require a Gemini API key. Narration API use is separate from Flow's browser-based visual workflow.
+
+## Local Gemini TTS helper
+
+The workspace includes `scripts/gemini-tts.mjs` for the current Gemini Interactions audio response route, usable from Codex, VS Code, or another Node agent. Set `GEMINI_API_KEY` in that agent's process environment; do not put it in a request file or `.env` committed to Git. Prepare a JSON request with an approved model, narrator voice, and exact transcript turns, optionally adding sustained delivery styles:
+
+```json
+{
+  "model": "gemini-3.8-flash-tts",
+  "voice": "APPROVED_VOICE_NAME",
+  "turns": [
+    { "text": "The station lights went dark, one by one." },
+    { "text": "Then Rover heard a whisper behind the door.", "style": "Speak quietly, with growing unease." }
+  ]
+}
+```
+
+After checking current model access, price, quota, billing, transcript, voice, and delivery, make the billable request explicitly:
+
+```powershell
+node scripts/gemini-tts.mjs --request projects/<slug>/episode-01/tts-request.json --output projects/<slug>/episode-01/audio/narration.wav --allow-network
+```
+
+The helper writes the returned WAV bytes and a safe JSON receipt; it makes one request and does not retry. It never prints the API key or raw provider error body. This helper does not audition voice automatically. Follow the approval and audition gates above before a full episode batch.

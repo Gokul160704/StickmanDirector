@@ -1,0 +1,27 @@
+{
+  "name": "stickmandirector",
+  "version": "1.0.0",
+  "description": "A reusable workflow and toolkit for planning vertical stickman story series, producing artwork in Google Flow, managing storyboards in Boords, and preparing narration and edits.",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "render:episode": "node scripts/engine/render-episode.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Gokul160704/StickmanDirector.git"
+  },
+  "keywords": [],
+  "bugs": {
+    "url": "https://github.com/Gokul160704/StickmanDirector/issues"
+  },
+  "homepage": "https://github.com/Gokul160704/StickmanDirector#readme",
+  "dependencies": {
+    "@napi-rs/canvas": "0.1.100"
+  }
+}
