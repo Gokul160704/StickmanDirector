@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "episodeId": "episode-01",
+  "title": "Episode title",
+  "topic": "Topic",
+  "description": "Approved episode description.",
+  "targetAudience": "General audience",
+  "intendedDurationSeconds": 4,
+  "output": {
+    "resolution": "1920x1080",
+    "frameRate": 30,
+    "aspectRatio": "16:9"
+  },
+  "references": {
+    "characters": [],
+    "props": [],
+    "environments": [],
+    "visualStyle": "Approved still-image style anchor."
+  },
+  "audio": {
+    "path": "narration/episode-01.wav"
+  },
+  "scenes": [
+    {
+      "id": "scene-01",
+      "order": 1,
+      "image": "images/scene-01.png",
+      "durationSeconds": 4,
+      "visualDescription": "One complete cinematic story moment.",
+      "characters": [],
+      "props": [],
+      "camera": "wide shot",
+      "narration": "Exact approved spoken text.",
+      "captions": [
+        { "startSeconds": 0.2, "endSeconds": 2.8, "text": "Exact approved spoken text." }
+      ]
+    }
+  ],
+  "research": { "questions": [], "sources": [], "verifiedClaims": [], "uncertaintyNotes": "" },
+  "script": { "approvalStatus": "draft", "revision": 1 },
+  "continuity": { "characters": [], "props": [], "environments": [] },
+  "storyboard": { "source": "Boords", "handoffFormat": "stickmandirector-boords-handoff-v1" },
+  "production": {
+    "stage": "research",
+    "status": "planning",
+    "provenance": { "source": "manual", "approved": false }
+  }
+}

@@ -1,6 +1,6 @@
 # StickmanDirector
 
-A reusable workflow and toolkit for planning 16:9 illustrated stickman story series, producing stills and image-to-video in Google Flow, managing storyboards in Boords, and preparing Gemini narration and edits.
+A reusable workflow and toolkit for planning illustrated stickman story series, producing reviewed stills in Google Flow, managing storyboards in Boords, and assembling narrated 1080p MP4s locally with FFmpeg.
 
 ## What belongs in this repository
 
@@ -28,16 +28,23 @@ The script writes a Markdown prompt pack beside the JSON. Use the configured Goo
 
 ## Create and render an episode
 
-Create full-frame 16:9 scene illustrations in Flow, review and approve them, then use Flow image-to-video on selected stills where motion helps the story. Follow the [image-to-video workflow](docs/image-to-video-workflow.md) and use the configured Flow MCP. Produce narration with the existing Gemini TTS workflow in [AUDIO.md](AUDIO.md).
+Create full-frame 16:9 scene illustrations in Flow and review them. The approved local profile assembles stills only; it does not require or generate Flow video clips. Produce narration with the existing Gemini TTS workflow in [AUDIO.md](AUDIO.md).
 
-For a local still-image fallback with captions and narration, place five approved stills and the narration WAV in a series project, then run:
+For the canonical path, fill `episode.json` with ordered scenes, approved image paths, timing/captions, and narration, then run:
+
+```powershell
+node scripts/validate-episode.mjs projects/<slug>/episode.json
+node scripts/render-episode.mjs projects/<slug>
+```
+
+The output is written under `exports/` by default. The older five-image fallback remains available:
 
 ```powershell
 npm ci
 npm run render:stills -- projects/<slug> 1
 ```
 
-The review MP4 and SRT are written under that project folder. This fallback does not generate animation.
+The review MP4 and SRT are written under that project folder. This compatibility path does not generate animation. See [upstream compatibility](docs/upstream-compatibility.md) for the boundary with the installed official skill.
 
 ## Workflow
 
@@ -49,3 +56,5 @@ The review MP4 and SRT are written under that project folder. This fallback does
 6. Generate motion selectively from approved stills in Flow, produce narration using [AUDIO.md](AUDIO.md), then assemble the approved clips, captions, and sound.
 
 See [docs/workflow.md](docs/workflow.md), [docs/repository-policy.md](docs/repository-policy.md), and [AGENTS.md](AGENTS.md) for full operating rules.
+
+See [production contracts](docs/production-contracts.md) for manifest sections, resumable checkpoints, Boords handoff, caption timing, and output safety.
