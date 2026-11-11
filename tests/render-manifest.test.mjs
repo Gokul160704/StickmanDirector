@@ -55,3 +55,19 @@ test('loads explicit caption alignment data instead of estimating it', async () 
     assert.deepEqual(plan.captionEntries, [{ startSeconds: 0.4, endSeconds: 1.1, text: 'Aligned phrase' }]);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('rejects caption alignment files reached through a symlinked parent', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'stickman-align-link-'));
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'stickman-align-outside-'));
+  try {
+    await mkdir(path.join(root, 'images')); await writeFile(path.join(root, 'one.png'), 'image');
+    await writeFile(path.join(outside, 'alignment.json'), JSON.stringify({ captions: [] }));
+    try { await (await import('node:fs/promises')).symlink(outside, path.join(root, 'linked'), 'junction'); } catch { return; }
+    await writeFile(path.join(root, 'episode.json'), JSON.stringify({
+      schemaVersion: 1, episodeId: 'align-link', title: 'Episode', topic: 'Topic', description: 'Desc', targetAudience: 'Everyone', intendedDurationSeconds: 2,
+      output: { resolution: '1920x1080', frameRate: 30, aspectRatio: '16:9' }, references: { characters: [], props: [] },
+      captions: { timingSource: 'alignment', alignmentPath: 'linked/alignment.json' }, scenes: [{ id: 's1', order: 1, image: 'one.png', durationSeconds: 2, captions: [] }],
+    }));
+    await assert.rejects(createRenderPlan(root), /outside the project root/i);
+  } finally { await rm(root, { recursive: true, force: true }); await rm(outside, { recursive: true, force: true }); }
+});

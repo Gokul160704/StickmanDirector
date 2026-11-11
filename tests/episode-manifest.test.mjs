@@ -48,7 +48,11 @@ test('rejects duplicate scene order and malformed caption ranges', () => {
 });
 
 test('rejects POSIX and Windows traversal or absolute asset paths consistently', () => {
-  for (const image of ['../outside.png', '..\\outside.png', 'a/../../outside.png', 'a\\..\\..\\outside.png', '/tmp/outside.png', '\\tmp\\outside.png', 'C:/outside.png', 'C:\\outside.png']) {
+  for (const image of ['../outside.png', '..\\outside.png', 'a/../../outside.png', 'a\\..\\..\\outside.png', '/tmp/outside.png', '\\tmp\\outside.png', 'C:/outside.png', 'C:\\outside.png', 'D:asset.png']) {
     assert.throws(() => validateEpisodeManifest({ ...valid, scenes: [{ ...valid.scenes[0], image }] }), /inside the project root|relative path/i, image);
   }
+});
+
+test('rejects output aspect ratios other than 16:9', () => {
+  assert.throws(() => validateEpisodeManifest({ ...valid, output: { ...valid.output, aspectRatio: '9:16' } }), /16:9.*supported/i);
 });

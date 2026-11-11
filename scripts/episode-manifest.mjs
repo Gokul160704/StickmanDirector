@@ -24,7 +24,7 @@ function positiveNumber(value, field, { zero = false } = {}) {
 
 export function assertSafeRelativeAssetPath(value, field = 'asset path') {
   requiredString(value, field);
-  if (path.isAbsolute(value) || /^[A-Za-z]:[\\/]/.test(value) || /^[\\/]/.test(value) || /[\0\r\n]/.test(value)) fail(`${field} must be a relative path inside the project root.`);
+  if (path.isAbsolute(value) || /^[A-Za-z]:/.test(value) || /^[\\/]/.test(value) || /[\0\r\n]/.test(value)) fail(`${field} must be a relative path inside the project root.`);
   let depth = 0;
   for (const segment of value.split(/[\\/]+/)) {
     if (!segment || segment === '.') continue;
@@ -55,6 +55,7 @@ export function validateEpisodeManifest(input, { root = process.cwd() } = {}) {
   if (output.resolution !== '1920x1080') fail('Only output resolution 1920x1080 is supported.');
   if (output.frameRate !== 30) fail('Only frame rate 30 is supported.');
   if (!ASPECT_RATIO.test(requiredString(output.aspectRatio, 'output.aspectRatio'))) fail('output.aspectRatio must look like 16:9.');
+  if (output.aspectRatio !== '16:9') fail('Only aspect ratio 16:9 is supported.');
 
   const references = input.references ?? {};
   for (const kind of ['characters', 'props', 'environments']) {

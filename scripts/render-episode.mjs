@@ -87,7 +87,8 @@ async function createManifestPlan(root) {
   }
   let captionEntries = entries;
   if (manifest.captions.alignmentPath) {
-    const alignment = JSON.parse(await readFile(path.resolve(root, manifest.captions.alignmentPath), 'utf8'));
+    const alignmentPath = await assertPathInsideRoot(root, path.resolve(root, manifest.captions.alignmentPath), 'captions.alignmentPath');
+    const alignment = JSON.parse(await readFile(alignmentPath, 'utf8'));
     captionEntries = alignment.captions ?? alignment;
     if (!Array.isArray(captionEntries)) throw new Error('Caption alignment file must contain an array or a captions array.');
     captionEntries = captionEntries.map((entry, index) => ({ startSeconds: entry.startSeconds ?? entry.start, endSeconds: entry.endSeconds ?? entry.end, text: entry.text ?? entry.phrase ?? '' }));
