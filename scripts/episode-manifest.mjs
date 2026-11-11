@@ -23,7 +23,7 @@ function positiveNumber(value, field, { zero = false } = {}) {
 
 export function assertSafeRelativeAssetPath(value, field = 'asset path') {
   requiredString(value, field);
-  if (path.isAbsolute(value) || value.includes('\0')) fail(`${field} must be a relative path inside the project root.`);
+  if (path.isAbsolute(value) || /[\0\r\n]/.test(value)) fail(`${field} must be a relative path inside the project root.`);
   const normalized = path.normalize(value);
   if (normalized === '..' || normalized.startsWith(`..${path.sep}`) || normalized.startsWith('../') || normalized.startsWith('..\\')) {
     fail(`${field} must resolve inside the project root.`);

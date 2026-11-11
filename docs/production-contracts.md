@@ -38,3 +38,7 @@ alignment. Existing legacy projects retain their proportional caption fallback.
 Renders and caption sidecars are written to temporary sibling files and renamed only
 after FFprobe verification. Existing outputs are refused by default; `--replace` is an
 explicit operator choice. FFmpeg is invoked with an argument array, never a shell string.
+
+FFmpeg and FFprobe can be selected with `STICKMAN_FFMPEG` and `STICKMAN_FFPROBE`
+(or the conventional `FFMPEG` and `FFPROBE`) when the host does not expose the
+executables under their default names.

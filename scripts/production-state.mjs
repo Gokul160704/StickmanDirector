@@ -1,4 +1,5 @@
-import { readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 export const PRODUCTION_STAGES = ['research', 'script', 'continuity', 'storyboard', 'references', 'images', 'audio', 'captions', 'rendering', 'QA'];
@@ -29,9 +30,12 @@ export function transitionProductionState(state, nextStage, { artifact, note } =
 
 export async function saveProductionState(file, state) {
   const target = path.resolve(file);
-  const temporary = `${target}.tmp-${process.pid}`;
-  await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`, { flag: 'wx' });
-  await rename(temporary, target);
+  await mkdir(path.dirname(target), { recursive: true });
+  const temporary = `${target}.tmp-${process.pid}-${randomUUID()}`;
+  try {
+    await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`, { flag: 'wx' });
+    await rename(temporary, target);
+  } finally { await rm(temporary, { force: true }); }
   return target;
 }
 

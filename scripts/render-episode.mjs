@@ -6,6 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadEpisodeManifest } from './episode-manifest.mjs';
 import { validateImageAssets } from './asset-validation.mjs';
+import { assertPathInsideRoot } from './path-safety.mjs';
+import { getMediaToolConfig } from './media-tools.mjs';
 
 const SCENES = 5;
 const exists = async (file) => { try { await access(file); return true; } catch { return false; } };
@@ -37,7 +39,7 @@ async function captionTexts(root, part) {
 }
 
 async function probe(file, entries = 'duration') {
-  const out = await sh('ffprobe', ['-v', 'error', '-show_entries', `format=${entries}`, '-of', 'default=nw=1:nk=1', file]);
+  const out = await sh(getMediaToolConfig().ffprobe, ['-v', 'error', '-show_entries', `format=${entries}`, '-of', 'default=nw=1:nk=1', file]);
   return Number.parseFloat(out);
 }
 
@@ -56,8 +58,8 @@ async function createManifestPlan(root) {
   if (!manifest.scenes.length) throw new Error('Manifest contains no scenes. Add at least one approved still scene before rendering.');
   const scenes = manifest.scenes.map((scene) => ({ ...scene, imagePath: path.resolve(root, scene.image) }));
   for (const scene of scenes) if (!(await exists(scene.imagePath))) throw new Error(`Missing scene image for ${scene.id}: ${scene.imagePath}`);
-  const audioPath = manifest.audio?.path ? path.resolve(root, manifest.audio.path) : null;
-  const backgroundPath = manifest.audio?.backgroundPath ? path.resolve(root, manifest.audio.backgroundPath) : null;
+  const audioPath = manifest.audio?.path ? await assertPathInsideRoot(root, path.resolve(root, manifest.audio.path), 'audio.path') : null;
+  const backgroundPath = manifest.audio?.backgroundPath ? await assertPathInsideRoot(root, path.resolve(root, manifest.audio.backgroundPath), 'audio.backgroundPath') : null;
   if (audioPath && !(await exists(audioPath))) throw new Error(`Missing narration audio: ${audioPath}`);
   if (backgroundPath && !(await exists(backgroundPath))) throw new Error(`Missing background audio: ${backgroundPath}`);
   let duration = scenes.every((scene) => scene.durationSeconds) ? scenes.reduce((sum, scene) => sum + scene.durationSeconds, 0) : null;
@@ -89,7 +91,8 @@ async function createManifestPlan(root) {
     if (!Array.isArray(captionEntries)) throw new Error('Caption alignment file must contain an array or a captions array.');
     captionEntries = captionEntries.map((entry, index) => ({ startSeconds: entry.startSeconds ?? entry.start, endSeconds: entry.endSeconds ?? entry.end, text: entry.text ?? entry.phrase ?? '' }));
   }
-  return { mode: 'manifest', root, manifest, scenes, audioPath, backgroundPath, duration: scenes.reduce((sum, scene) => sum + scene.durationSeconds, 0), captionEntries, out: path.resolve(root, manifest.output?.path ?? path.join('exports', `${manifest.episodeId}.mp4`)) };
+  const out = await assertPathInsideRoot(root, path.resolve(root, manifest.output?.path ?? path.join('exports', `${manifest.episodeId}.mp4`)), 'output.path');
+  return { mode: 'manifest', root, manifest, scenes, audioPath, backgroundPath, duration: scenes.reduce((sum, scene) => sum + scene.durationSeconds, 0), captionEntries, out };
 }
 
 export async function createRenderPlan(root, part) {
@@ -103,10 +106,15 @@ export async function createRenderPlan(root, part) {
   return { mode: 'legacy', root, part, audioPath, imagePaths, captionTexts: await captionTexts(root, part) };
 }
 
+export function formatConcatPath(file) {
+  const normalized = file.replaceAll('\\', '/').replaceAll("'", "'\\''");
+  return `file '${normalized}'`;
+}
+
 function concatContent(scenes) {
   const lines = [];
-  for (const scene of scenes) lines.push(`file '${scene.imagePath.replaceAll('\\', '/')}'`, `duration ${scene.durationSeconds.toFixed(6)}`);
-  lines.push(`file '${scenes.at(-1).imagePath.replaceAll('\\', '/')}'`);
+  for (const scene of scenes) lines.push(formatConcatPath(scene.imagePath), `duration ${scene.durationSeconds.toFixed(6)}`);
+  lines.push(formatConcatPath(scenes.at(-1).imagePath));
   return `${lines.join('\n')}\n`;
 }
 
@@ -179,7 +187,7 @@ async function renderPlan(plan, { replace = false } = {}) {
     args[args.indexOf('-vf') + 1] = filters.join(',');
     args.push('-movflags', '+faststart', temporaryOutput);
     try {
-      await sh('ffmpeg', args);
+      await sh(getMediaToolConfig().ffmpeg, args);
       const verification = await verifyOutput(temporaryOutput, duration, { requireAudio: Boolean(plan.audioPath) });
       if (replace && await exists(out)) await rm(out, { force: true });
       await rename(temporaryOutput, out);
