@@ -1,6 +1,6 @@
-# Image-to-video production workflow
+# Historical external image-to-video handoff
 
-StickmanDirector uses approved illustrations as the visual source for each shot. Google Flow image-to-video is the default way to add motion; the character is not redrawn or animated by a local code renderer.
+This document is retained for historical/externally authorized handoffs only. The current approved StickmanDirector production profile uses approved full-frame illustrations as still inputs and assembles them locally; it does not require or generate Google Flow video clips. Do not use this workflow for the local pilot unless the user explicitly changes the production contract.
 
 ## Shot workflow
 
