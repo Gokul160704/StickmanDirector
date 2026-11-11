@@ -1,0 +1,13 @@
+{
+  "servers": {
+    "google-flow": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${env:USERPROFILE}\\flow-mcp\\dist\\index.js"],
+      "cwd": "${env:USERPROFILE}\\flow-mcp",
+      "env": {
+        "FLOW_MCP_WHISPER": "${env:USERPROFILE}\\.flow-mcp\\bin\\whisper-cpp\\Release\\whisper-cli.exe"
+      }
+    }
+  }
+}

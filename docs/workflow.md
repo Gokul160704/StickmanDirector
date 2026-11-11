@@ -12,19 +12,19 @@ Create a Boords project for each series. Arrange frames in story order and inclu
 
 Before episode scenes, make and review reusable references for every recurring character and important prop in Google Flow. Record design, ownership, initial state, and later changes in continuity notes. Reuse these references across scenes and episodes.
 
-## 4. Make art in Flow's browser tab
+## 4. Make art in Google Flow
 
-Open the user's signed-in Google Flow tab and work directly in that tab with browser controls. Use it for mood-board exploration, prompt refinement, reference creation, image generation, and edits. Treat the current tab/project as the source of truth. Do not route image generation through Gemini API, ChatGPT ImageGen, or another service unless the user explicitly changes the tool choice.
+Use the configured GTAI-1 Flow MCP for mood-board exploration, prompt refinement, reference creation, image generation, and edits. Call `flow_status` first and verify sign-in and the intended project. If the MCP is unavailable, use the signed-in Flow browser as a fallback. Do not route image generation through Gemini API, ChatGPT ImageGen, or another service unless the user explicitly changes the tool choice. See [Google Flow MCP setup and findings](google-flow-mcp.md).
 
-Before a credit-consuming batch, inspect the current model, available credits, and displayed per-output cost in Flow; show the proposed outputs and estimated total and wait for explicit authorization. An approval for one prompt/model/batch does not cover revisions or added outputs. Use the prompt-pack script to prepare copyable text only; it does not access Flow or spend credits.
+Before a credit-consuming batch, inspect the current model, available credits, and displayed per-output cost in Flow; show the proposed outputs and estimated total and wait for explicit authorization. MCP caps and acknowledgment fields do not replace this approval. An approval for one prompt/model/batch does not cover revisions or added outputs. Use the prompt-pack script to prepare separate still-image and image-to-video prompts; it does not access Flow or spend credits. Approve stills before requesting image-to-video.
 
-Final scene art must depict one complete vertical story moment. Reject scene cards, storyboard layouts, labels, panel splits, prompt summaries, arrows, explanatory text, and other artifacts. Review each at full size and in sequence for composition, text, and continuity. Keep captions out of generated images.
+Final scene art must depict one complete 16:9 story moment. Reject scene cards, storyboard layouts, labels, panel splits, prompt summaries, arrows, explanatory text, and other artifacts. Review each at full size and in sequence for composition, text, and continuity. Keep captions out of generated images.
 
 ## 5. Review and assemble
 
-Attach approved Flow outputs to the matching Boords frames or Asset Library. Use 9:16 still-image-first scenes for Shorts and Reels. Prepare narration according to [AUDIO.md](../AUDIO.md), then assemble narration, captions, sound, and subtle motion in an editor. Use video generation only when it adds clear value.
+Attach approved Flow outputs to the matching Boords frames or Asset Library. Default to 16:9 illustrated storytelling. Prepare narration according to [AUDIO.md](../AUDIO.md), then use Flow image-to-video from approved stills for selected shots where motion helps the story. Review and approve each generated clip before assembling it with narration, captions, and sound. See [image-to-video workflow](image-to-video-workflow.md).
 
-For code-driven stickman motion, place approved Flow background plates and the approved narration WAV in the local episode project, describe the shots, poses, and captions in its engine manifest, then render with the local Node engine. See [engine setup](engine-setup.md). The character is vector-drawn and keyframed by code; Flow supplies backgrounds only. Keep the same script and exact spoken text in the local project and Boords.
+For a local still-image fallback, use `npm run render:stills -- <projectDir> <part>` to assemble five approved images with narration and a caption sidecar. This path does not animate characters. Keep the same script and exact spoken text in the local project and Boords.
 
 ## 6. Keep the repo clean
 

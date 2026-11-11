@@ -17,10 +17,10 @@ const dirs = ['episodes', 'narration', 'references/characters', 'references/prop
 await mkdir(root, { recursive: true });
 for (const dir of dirs) await mkdir(path.join(root, dir), { recursive: true });
 const files = {
-  'README.md': `# ${title}\n\nLocal series workspace. Keep this folder current; it is ignored by Git by default.\n\n## Production state\n- Stage: development\n- Source storyboard: Boords\n- Visual tool: signed-in Google Flow browser tab\n- Aspect ratio: vertical 9:16\n`,
+  'README.md': `# ${title}\n\nLocal series workspace. Keep this folder current; it is ignored by Git by default.\n\n## Production state\n- Stage: development\n- Source storyboard: Boords\n- Visual tool: configured GTAI-1 Google Flow MCP\n- Aspect ratio: 16:9\n- Motion: Flow image-to-video from approved stills\n`,
   'script.md': `# ${title} — current script\n\n> Keep this synchronized with the version used for narration and rendering.\n\n## Series premise\n\n## Character and prop continuity\nSee [continuity.md](continuity.md).\n\n## Episodes\n`,
   'continuity.md': `# ${title} — continuity notes\n\n## Characters\n| Name | Stable design | Ownership / relationships | State changes | Reference |\n|---|---|---|---|---|\n\n## Props\n| Prop | Stable design | Owner | Starting state | Changes by episode/scene | Reference |\n|---|---|---|---|---|---|\n\n## Locations\n`,
-  'flow-prompts.json': JSON.stringify({ series: title, styleAnchor: '', characterAnchors: [], propAnchors: [], scenes: [] }, null, 2) + '\n'
+  'flow-prompts.json': JSON.stringify({ series: title, aspectRatio: '16:9', styleAnchor: '', characterAnchors: [], propAnchors: [], scenes: [] }, null, 2) + '\n'
 };
 for (const [name, content] of Object.entries(files)) await writeFile(path.join(root, name), content, { flag: 'wx' });
 console.log(`Created local series scaffold: ${root}`);

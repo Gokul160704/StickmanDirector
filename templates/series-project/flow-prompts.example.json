@@ -1,5 +1,6 @@
 {
   "series": "Series title",
+  "aspectRatio": "16:9",
   "styleAnchor": "Reusable visual style description. Keep text out of generated art and preserve the caption-safe area.",
   "characterAnchors": [
     { "name": "Character name", "description": "Stable appearance and continuity details." }
@@ -11,7 +12,8 @@
     {
       "episode": "Part 1",
       "scene": "Scene 1",
-      "prompt": "Describe one full-frame vertical story moment, composition, action, lighting, and emotional beat. No titles, captions, labels, panels, or prompt text in the image."
+      "imagePrompt": "Describe one full-frame 16:9 story moment, composition, action, lighting, and emotional beat. No titles, captions, labels, panels, or prompt text in the image.",
+      "videoPrompt": "Describe subtle, physically coherent motion from this approved still. Preserve character identity, clothing, props, composition, and art style; add no new characters or text."
     }
   ]
 }

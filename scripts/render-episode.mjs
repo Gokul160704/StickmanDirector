@@ -108,7 +108,7 @@ export async function renderEpisode(root, part) {
   await sh('ffmpeg', [
     '-y', '-f', 'concat', '-safe', '0', '-i', concatPath, '-i', plan.audioPath,
     '-map', '0:v:0', '-map', '1:a:0',
-    '-vf', 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,format=yuv420p',
+    '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p',
     '-r', '30', '-frames:v', String(Math.ceil(duration * 30)),
     '-c:v', 'libx264', '-preset', 'medium', '-c:a', 'aac', '-b:a', '192k',
     '-movflags', '+faststart', out,
