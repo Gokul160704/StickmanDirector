@@ -1,12 +1,13 @@
 import { access, realpath } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import { getMediaToolConfig } from './media-tools.mjs';
 
 async function exists(file) { try { await access(file); return true; } catch { return false; } }
 
 function probeImage(file) {
   return new Promise((resolve, reject) => {
-    const child = spawn('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_type,width,height', '-of', 'json', file], { windowsHide: true });
+    const child = spawn(getMediaToolConfig().ffprobe, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_type,width,height', '-of', 'json', file], { windowsHide: true });
     let out = ''; let err = '';
     child.stdout.on('data', (data) => { out += data; }); child.stderr.on('data', (data) => { err += data; });
     child.on('error', (error) => reject(new Error(`ffprobe could not start for ${file}: ${error.message}`)));

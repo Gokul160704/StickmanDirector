@@ -18,7 +18,7 @@ export function transitionProductionState(state, nextStage, { artifact, note } =
   assertStage(nextStage);
   const currentIndex = PRODUCTION_STAGES.indexOf(state.stage);
   const nextIndex = PRODUCTION_STAGES.indexOf(nextStage);
-  if (nextIndex > currentIndex + 1) throw new Error(`Cannot advance production from ${state.stage} to ${nextStage}; complete intervening stages first.`);
+  if (nextIndex !== currentIndex + 1) throw new Error(`Cannot advance production stage from ${state.stage} to ${nextStage}; transitions must move forward exactly one step.`);
   const next = structuredClone(state);
   next.completedStages[state.stage] = { status: 'complete', completedAt: new Date().toISOString(), ...(note ? { note } : {}) };
   next.stage = nextStage;

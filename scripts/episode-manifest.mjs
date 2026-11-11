@@ -4,6 +4,7 @@ import path from 'node:path';
 const RESOLUTION = /^\d+x\d+$/;
 const ASPECT_RATIO = /^\d+:\d+$/;
 const STAGES = ['research', 'script', 'continuity', 'storyboard', 'references', 'images', 'audio', 'captions', 'rendering', 'QA'];
+const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 function fail(message) {
   throw new Error(`Invalid episode manifest: ${message}`);
@@ -23,10 +24,12 @@ function positiveNumber(value, field, { zero = false } = {}) {
 
 export function assertSafeRelativeAssetPath(value, field = 'asset path') {
   requiredString(value, field);
-  if (path.isAbsolute(value) || /[\0\r\n]/.test(value)) fail(`${field} must be a relative path inside the project root.`);
-  const normalized = path.normalize(value);
-  if (normalized === '..' || normalized.startsWith(`..${path.sep}`) || normalized.startsWith('../') || normalized.startsWith('..\\')) {
-    fail(`${field} must resolve inside the project root.`);
+  if (path.isAbsolute(value) || /^[A-Za-z]:[\\/]/.test(value) || /^[\\/]/.test(value) || /[\0\r\n]/.test(value)) fail(`${field} must be a relative path inside the project root.`);
+  let depth = 0;
+  for (const segment of value.split(/[\\/]+/)) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') { depth -= 1; if (depth < 0) fail(`${field} must resolve inside the project root.`); }
+    else depth += 1;
   }
   return value.replaceAll('\\', '/');
 }
@@ -43,11 +46,14 @@ export function validateEpisodeManifest(input, { root = process.cwd() } = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail('top level must be an object.');
   if (input.schemaVersion !== 1) fail('schemaVersion must be 1.');
   for (const field of ['episodeId', 'title', 'topic', 'description', 'targetAudience']) requiredString(input[field], field);
+  if (!SAFE_ID.test(input.episodeId)) fail('episodeId must be a safe identifier using only letters, numbers, hyphens, and underscores (1–64 characters).');
   positiveNumber(input.intendedDurationSeconds, 'intendedDurationSeconds');
   const output = input.output;
   if (!output || typeof output !== 'object') fail('output must be an object.');
   if (!RESOLUTION.test(requiredString(output.resolution, 'output.resolution'))) fail('output.resolution must look like 1920x1080.');
   positiveNumber(output.frameRate, 'output.frameRate');
+  if (output.resolution !== '1920x1080') fail('Only output resolution 1920x1080 is supported.');
+  if (output.frameRate !== 30) fail('Only frame rate 30 is supported.');
   if (!ASPECT_RATIO.test(requiredString(output.aspectRatio, 'output.aspectRatio'))) fail('output.aspectRatio must look like 16:9.');
 
   const references = input.references ?? {};

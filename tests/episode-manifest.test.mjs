@@ -46,3 +46,9 @@ test('rejects duplicate scene order and malformed caption ranges', () => {
     /unique consecutive order|caption.*endSeconds/i,
   );
 });
+
+test('rejects POSIX and Windows traversal or absolute asset paths consistently', () => {
+  for (const image of ['../outside.png', '..\\outside.png', 'a/../../outside.png', 'a\\..\\..\\outside.png', '/tmp/outside.png', '\\tmp\\outside.png', 'C:/outside.png', 'C:\\outside.png']) {
+    assert.throws(() => validateEpisodeManifest({ ...valid, scenes: [{ ...valid.scenes[0], image }] }), /inside the project root|relative path/i, image);
+  }
+});

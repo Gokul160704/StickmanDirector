@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
@@ -8,6 +8,7 @@ import { loadEpisodeManifest } from './episode-manifest.mjs';
 import { validateImageAssets } from './asset-validation.mjs';
 import { assertPathInsideRoot } from './path-safety.mjs';
 import { getMediaToolConfig } from './media-tools.mjs';
+import { replaceOutputPair } from './atomic-output.mjs';
 
 const SCENES = 5;
 const exists = async (file) => { try { await access(file); return true; } catch { return false; } };
@@ -134,7 +135,7 @@ export async function assertOutputAvailable(file, { replace = false } = {}) {
 }
 
 async function verifyOutput(file, expectedDuration, { requireAudio = false } = {}) {
-  const metadata = JSON.parse(await sh('ffprobe', ['-v', 'error', '-show_entries', 'format=duration:stream=index,codec_type,codec_name,width,height,r_frame_rate', '-of', 'json', file]));
+  const metadata = JSON.parse(await sh(getMediaToolConfig().ffprobe, ['-v', 'error', '-show_entries', 'format=duration:stream=index,codec_type,codec_name,width,height,r_frame_rate', '-of', 'json', file]));
   const video = metadata.streams?.find((stream) => stream.codec_type === 'video');
   const audio = metadata.streams?.find((stream) => stream.codec_type === 'audio');
   if (!video || video.width !== 1920 || video.height !== 1080 || video.codec_name !== 'h264') throw new Error('Rendered output failed video verification (expected 1920x1080 H.264).');
@@ -159,10 +160,10 @@ async function renderPlan(plan, { replace = false } = {}) {
   const entries = plan.mode === 'manifest' ? plan.captionEntries : plan.captionTexts.map((text, i) => ({ startSeconds: i * duration / SCENES + 0.1, endSeconds: Math.min((i + 1) * duration / SCENES, i * duration / SCENES + 2.6), text }));
   const out = plan.mode === 'manifest' ? plan.out : path.join(plan.root, 'output', `part-${plan.part}-review.mp4`);
   const captionDir = path.join(plan.root, 'captions'); await mkdir(captionDir, { recursive: true });
-  const srtPath = path.join(captionDir, plan.mode === 'manifest' ? `${plan.manifest.episodeId}.srt` : `part-${plan.part}.srt`);
+  const srtPath = await assertPathInsideRoot(plan.root, path.join(captionDir, plan.mode === 'manifest' ? `${plan.manifest.episodeId}.srt` : `part-${plan.part}.srt`), 'caption output path');
   validateCaptionEntries(entries, duration);
   if (await exists(srtPath) && !replace) throw new Error(`Refusing to overwrite existing caption sidecar: ${srtPath}. Re-run with --replace after reviewing the current output.`);
-  const srtTemporary = `${srtPath}.tmp-${process.pid}`;
+  const srtTemporary = `${srtPath}.tmp-${process.pid}-${Date.now()}`;
   await writeFile(srtTemporary, makeCaptionSrt([], duration, { entries }), { flag: 'wx' });
   const tempDir = path.join(os.tmpdir(), `stickman-render-${process.pid}-${Date.now()}`);
   await mkdir(tempDir, { recursive: true });
@@ -189,9 +190,7 @@ async function renderPlan(plan, { replace = false } = {}) {
     try {
       await sh(getMediaToolConfig().ffmpeg, args);
       const verification = await verifyOutput(temporaryOutput, duration, { requireAudio: Boolean(plan.audioPath) });
-      if (replace && await exists(out)) await rm(out, { force: true });
-      await rename(temporaryOutput, out);
-      await rename(srtTemporary, srtPath);
+      await replaceOutputPair({ mp4Temp: temporaryOutput, srtTemp: srtTemporary, mp4Target: out, srtTarget: srtPath, replace });
       return { out, duration: verification.duration, srtPath, verification, captionTimingSource: plan.mode === 'manifest' ? plan.manifest.captions.timingSource : 'legacy-proportional' };
     } finally { await rm(temporaryOutput, { force: true }); }
   } finally { await rm(srtTemporary, { force: true }); await rm(tempDir, { recursive: true, force: true }); }

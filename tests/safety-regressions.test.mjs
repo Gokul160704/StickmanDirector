@@ -16,6 +16,7 @@ test('rejects output paths that escape through a symlinked parent directory', as
       await (await import('node:fs/promises')).symlink(outside, link, 'junction');
     } catch { return; }
     await assert.rejects(assertPathInsideRoot(root, path.join(link, 'episode.mp4'), 'output.path'), /outside the project root/i);
+    await assert.rejects(assertPathInsideRoot(root, path.join(link, 'episode.srt'), 'caption output path'), /outside the project root/i);
   } finally { await rm(root, { recursive: true, force: true }); await rm(outside, { recursive: true, force: true }); }
 });
 
