@@ -22,12 +22,25 @@ run can resume without regenerating approved work.
 The state file is operational bookkeeping, not a second creative manifest. The only
 canonical creative manifest remains `episode.json`, and `importEpisodeManifest` accepts
 only validated schema v1 data. Legacy data must be converted explicitly before import.
-State statuses are limited to `pending`, `running`, `complete`, `failed`, `blocked`,
-`invalidated`, and `skipped`. Attempts require an idempotency key; repeating a key is a
-no-op. Call `reconcileProductionState` with the current dependency hashes to invalidate
-the changed stage and downstream completed work. State persistence removes secret-like
-receipt fields; provider/network calls and receipt contents are deliberately outside
-this offline foundation.
+Canonical state statuses are exactly `draft`, `waiting-for-human`, `queued`, `running`,
+`generated`, `downloaded`, `reviewed`, `approved`, `rejected`, `failed`, `skipped`,
+`stale`, and `needs-reconciliation`. The old `completedStages` view is retained only as
+a compatibility projection for legacy readers; it is not the canonical vocabulary.
+Legacy stage data, unknown fields, and nontrivial attempt metadata are retained during
+v1 migration. Conflicting canonical and legacy stage payloads fail closed.
+
+Attempts require a normalized idempotency key and a replay fingerprint; a mismatched
+replay is rejected. Call `reconcileProductionState` with current dependency hashes:
+affected generated/downloaded/reviewed records become `stale`, approved records become
+`needs-reconciliation`, and failed, waiting, running, and skipped records are preserved.
+Approved records carry dependency and approval bindings, and reconciliation records an
+explicit human re-approval action.
+
+`requestSafeShotRetry` only queues a retry for an explicitly consented failed or
+needs-reconciliation shot with receipt and asset read-back metadata. It performs no
+provider call and never silently retries paid work. State persistence redacts nested
+receipt/provider secret values; provider/network calls and receipt contents are
+deliberately outside this offline foundation.
 
 ## Boords handoff
 
