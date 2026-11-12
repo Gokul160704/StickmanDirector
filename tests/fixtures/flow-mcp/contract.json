@@ -1,0 +1,12 @@
+{
+  "revision": "84b548f3aa72b749b82cdbfbb6f91cadebae8642",
+  "tools": {
+    "flow_status": { "required": [], "optional": ["detailed"] },
+    "flow_generate": { "required": ["project", "scenes"], "optional": ["max_credits", "acknowledge_cost"] },
+    "flow_wait": { "required": [], "optional": ["job_ids", "timeout_seconds"] },
+    "flow_download": { "required": ["assets", "project"], "optional": ["quality"] },
+    "flow_assets": { "required": [], "optional": ["kind"] },
+    "flow_transcribe": { "required": ["video"], "optional": ["language", "words"] },
+    "flow_voices": { "required": [], "optional": [] }
+  }
+}
