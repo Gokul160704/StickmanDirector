@@ -63,6 +63,7 @@ export function getNextQuestion(session) {
 export function answerGuidedChoice(session, questionId, value) {
   const question = requireChoice(questionId, value);
   if (question.stage !== session.stage) throw new Error(`Question ${questionId} is not part of the current stage ${session.stage}.`);
+  if (question.stage === 'providers') return selectGuidedProvider(session, questionId, value);
   const next = answerQuestion(session, questionId, value);
   next.nextHumanAction = { type: 'answer-question', questionId: getNextQuestion(next)?.id ?? null };
   return next;
@@ -78,11 +79,14 @@ export function advanceGuidedStage(session) {
 }
 
 export function approveGuidedStage(session, stage) {
+  const missing = GUIDED_QUESTIONS.filter((question) => question.stage === stage && session.answers[question.id] === undefined);
+  if (missing.length) throw new Error(`Cannot approve ${stage}; answer ${missing[0].id} first.`);
   return approveStage(session, stage);
 }
 
 export function editGuidedChoice(session, questionId, value) {
-  requireChoice(questionId, value);
+  const question = requireChoice(questionId, value);
+  if (question.stage === 'providers') return selectGuidedProvider(session, questionId, value);
   return answerQuestion(session, questionId, value);
 }
 
@@ -106,6 +110,7 @@ export function resumeGuidedProducer(saved) {
 export function selectGuidedProvider(session, questionId, providerId, entitlements = session.providerEntitlements) {
   const question = questionFor(questionId);
   if (!question || question.stage !== 'providers') throw new Error(`Unknown provider question: ${questionId}.`);
+  if (session.stage !== 'providers') throw new Error(`Provider choices are only available during the providers stage, not ${session.stage}.`);
   if (!question.choices.includes(providerId)) throw new Error(`Invalid choice for ${questionId}: ${providerId}.`);
   const selected = resolveProviderChoice({ providerId, catalog: session.providerCatalog, entitlements });
   const next = answerQuestion(session, questionId, selected.providerId);
@@ -117,6 +122,9 @@ export function regenerateSelectedShot(session, shotId) {
   requireShotId(shotId);
   const next = structuredClone(session);
   next.regenerationRequests ??= [];
+  if (next.regenerationRequests.some((request) => request.shotId === shotId && request.status === 'awaiting-approval')) {
+    throw new Error(`Shot ${shotId} already has a regeneration request awaiting approval.`);
+  }
   next.regenerationRequests.push({ shotId, status: 'awaiting-approval' });
   next.nextHumanAction = { type: 'approve-shot-regeneration', shotId };
   return next;

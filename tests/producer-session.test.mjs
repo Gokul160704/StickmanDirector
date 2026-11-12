@@ -67,6 +67,7 @@ test('Back and Edit preserve approvals until explicit invalidation is recorded',
     ['language', 'en'], ['aspectRatio', '16:9'], ['visualStyle', 'minimal'],
   ]) session = answerGuidedChoice(session, id, value);
   session = advanceGuidedStage(session);
+  session = answerGuidedChoice(session, 'scriptMode', 'draft');
   session = approveGuidedStage(session, 'script');
   session = goBackGuidedStage(session, 'preferences');
   assert.equal(session.stage, 'preferences');
@@ -78,7 +79,7 @@ test('Back and Edit preserve approvals until explicit invalidation is recorded',
 });
 
 test('provider selection fails safely when entitlement is unavailable', () => {
-  const session = createGuidedProducer({ episodeId: 'episode-01' });
+  const session = { ...createGuidedProducer({ episodeId: 'episode-01' }), stage: 'providers' };
   assert.throws(
     () => selectGuidedProvider(session, 'provider.image', 'flow', [{ providerId: 'flow', available: false }]),
     /not currently available/,
@@ -86,11 +87,25 @@ test('provider selection fails safely when entitlement is unavailable', () => {
   assert.equal(session.answers['provider.image'], undefined);
 });
 
+test('provider answers and edits enforce entitlement and provider-stage ordering', () => {
+  let session = createGuidedProducer({ episodeId: 'episode-01' });
+  assert.throws(() => answerGuidedChoice(session, 'provider.image', 'flow'), /not part of the current stage/);
+  session = { ...session, stage: 'providers' };
+  assert.throws(() => answerGuidedChoice(session, 'provider.image', 'flow'), /not currently available/);
+  assert.throws(() => editGuidedChoice(session, 'provider.image', 'flow'), /not currently available/);
+});
+
+test('approval requires every guided answer in the stage', () => {
+  const session = createGuidedProducer({ episodeId: 'episode-01' });
+  assert.throws(() => approveGuidedStage(session, 'entry'), /answer source first/);
+});
+
 test('selected-shot regeneration records an approval request without generation', () => {
   const session = createGuidedProducer({ episodeId: 'episode-01' });
   const next = regenerateSelectedShot(session, 'shot-03');
   assert.deepEqual(next.regenerationRequests, [{ shotId: 'shot-03', status: 'awaiting-approval' }]);
   assert.equal(next.nextHumanAction.type, 'approve-shot-regeneration');
+  assert.throws(() => regenerateSelectedShot(next, 'shot-03'), /already has a regeneration request/);
 });
 
 test('manual fallback is non-interactive and names every guided decision', () => {
