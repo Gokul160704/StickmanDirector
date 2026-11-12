@@ -18,7 +18,6 @@ function legacyPack(data) {
   for (const scene of data.scenes) {
     const heading = [scene.episode, scene.scene].filter(Boolean).join(' — ') || 'Untitled scene';
     lines.push('', `### ${heading}`, '', '#### Still image', '', `Create one complete, full-frame ${ratio} story illustration. Keep headings, captions, labels, panels, arrows, and explanatory callouts out of the image.`, '', scene.imagePrompt || scene.prompt || '(Add the approved still-image prompt.)');
-    if (scene.videoPrompt) lines.push('', '#### Optional external motion handoff', '', 'Use only after the source still is reviewed and approved. Preserve character identity, clothing, props, composition, and art style; keep motion coherent and avoid introducing text or new story elements.', '', scene.videoPrompt);
   }
   return lines.join('\n') + '\n';
 }
