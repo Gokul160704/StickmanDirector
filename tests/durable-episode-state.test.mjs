@@ -215,6 +215,31 @@ test('refuses attempts that overwrite an approved stage without invalidation', (
   }
 });
 
+test('refuses a second approved attempt while the stage is already approved', () => {
+  const state = recordProductionAttempt(createProductionState('episode-approved-01'), 'research', {
+    idempotencyKey: 'approved-first', status: 'approved', dependencyHash: 'sha256:first',
+    approvalBinding: { approvalId: 'human-first', actor: 'reviewer', dependencyHash: 'sha256:first', approvedAt: '2026-11-12T00:00:00.000Z' },
+  });
+  assert.throws(() => recordProductionAttempt(state, 'research', {
+    idempotencyKey: 'approved-second', status: 'approved', dependencyHash: 'sha256:second',
+    approvalBinding: { approvalId: 'human-second', actor: 'reviewer', dependencyHash: 'sha256:second', approvedAt: '2026-11-12T00:01:00.000Z' },
+  }), /approved|invalidation|re-approval/i);
+});
+
+test('refuses approved attempts while a stage is stale or needs reconciliation', () => {
+  const stale = reconcileProductionState(recordProductionAttempt(createProductionState('episode-stale-01'), 'research', {
+    idempotencyKey: 'stale-source', status: 'generated', dependencyHash: 'sha256:old',
+  }), { research: 'sha256:new' });
+  const needs = reconcileProductionState(recordProductionAttempt(createProductionState('episode-needs-01'), 'research', {
+    idempotencyKey: 'needs-source', status: 'approved', dependencyHash: 'sha256:old',
+    approvalBinding: { approvalId: 'human-old', actor: 'reviewer', dependencyHash: 'sha256:old', approvedAt: '2026-11-12T00:00:00.000Z' },
+  }), { research: 'sha256:new' });
+  for (const state of [stale, needs]) assert.throws(() => recordProductionAttempt(state, 'research', {
+    idempotencyKey: 'bypass-approved', status: 'approved', dependencyHash: 'sha256:new',
+    approvalBinding: { approvalId: 'human-new', actor: 'reviewer', dependencyHash: 'sha256:new', approvedAt: '2026-11-12T00:02:00.000Z' },
+  }), /stale|reconciliation|re-approval/i);
+});
+
 test('requires retry or reconciliation before advancing failed or stale stages', () => {
   for (const status of ['failed', 'stale']) {
     const state = recordProductionAttempt(createProductionState(`blocked-transition-${status}`), 'research', {

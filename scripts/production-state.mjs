@@ -158,6 +158,7 @@ export function recordProductionAttempt(state, stage, options = {}) {
     if (existing.replayFingerprint !== replayFingerprint) throw new Error('Idempotency key replay does not match the original attempt.');
     return next;
   }
+  if (status === 'approved' && ['approved', 'stale', 'needs-reconciliation'].includes(next.stages[stage].status)) throw new Error(`Cannot record approved attempt for ${next.stages[stage].status} stage ${stage}; use explicit invalidation and re-approval.`);
   if (['approved', 'reviewed'].includes(next.stages[stage].status) && status !== next.stages[stage].status) throw new Error(`Cannot overwrite ${next.stages[stage].status} stage ${stage} without explicit invalidation or re-approval.`);
   next.attempts.push(sanitize({ idempotencyKey: normalizedKey, replayFingerprint, stage, status, dependencyHash: hash, artifact, error, shotId, receiptReadback, assetReadback, approvalBinding, ...metadata, recordedAt: now() }));
   next.stages[stage] = { ...next.stages[stage], ...(requestedStatus === 'blocked' ? { legacyStatus: 'blocked' } : {}), status, ...(hash ? { dependencyHash: hash } : {}), ...(approvalBinding ? { approvalBinding } : {}), ...(error ? { error: String(error) } : {}), updatedAt: now() };
