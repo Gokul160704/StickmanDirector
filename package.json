@@ -13,6 +13,7 @@
   },
   "scripts": {
     "test": "node --test tests/*.test.mjs",
+    "producer:manual": "node scripts/producer-cli.mjs --manual",
     "render:stills": "node scripts/render-episode.mjs",
     "validate:episode": "node scripts/validate-episode.mjs"
   },
