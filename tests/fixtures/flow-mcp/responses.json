@@ -14,5 +14,22 @@
     "timeout": { "kind": "timeout", "retryable": true, "safeMessage": "Flow MCP request timed out" },
     "rate_limit": { "kind": "rate-limit", "retryable": true, "safeMessage": "Flow MCP rate limit reached" },
     "partial_output": { "kind": "partial-output", "retryable": true, "safeMessage": "Flow MCP returned an incomplete batch" }
+  },
+  "execution": { "network": "offline-fixture" },
+  "redaction": {
+    "input": {
+      "apiKey": "synthetic-key",
+      "authorization": "Bearer synthetic-token",
+      "cookie": "synthetic-cookie",
+      "access_token": "synthetic-access-token",
+      "nested": { "safe": "preserved" }
+    },
+    "output": {
+      "apiKey": "[REDACTED]",
+      "authorization": "[REDACTED]",
+      "cookie": "[REDACTED]",
+      "access_token": "[REDACTED]",
+      "nested": { "safe": "preserved" }
+    }
   }
 }

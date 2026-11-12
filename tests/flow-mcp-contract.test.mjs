@@ -17,6 +17,15 @@ async function loadFixture(name) {
   return JSON.parse(await readFile(file, 'utf8'));
 }
 
+function redactSecrets(value) {
+  if (Array.isArray(value)) return value.map(redactSecrets);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => {
+    if (/api[-_]?key|authorization|cookie|access[_-]?token/i.test(key)) return [key, '[REDACTED]'];
+    return [key, redactSecrets(item)];
+  }));
+}
+
 test('pins the audited Flow MCP tool names and required fields', async () => {
   const contract = await loadFixture('contract.json');
 
@@ -45,4 +54,30 @@ test('pins representative success envelopes for every audited tool', async () =>
   assert.equal(responses.success.flow_assets.assets[0].title, 'scene-01');
   assert.equal(responses.success.flow_transcribe.words[0].text, 'Tonight');
   assert.equal(responses.success.flow_voices.gemini_ready, true);
+});
+
+test('pins safe failures, redacts secrets, and stays offline', async () => {
+  const responses = await loadFixture('responses.json');
+
+  assert.deepEqual(Object.keys(responses.errors).sort(), [
+    'malformed_success',
+    'missing_required',
+    'partial_output',
+    'rate_limit',
+    'timeout',
+  ]);
+  assert.equal(responses.errors.timeout.retryable, true);
+  assert.equal(responses.errors.rate_limit.retryable, true);
+  assert.equal(responses.errors.partial_output.kind, 'partial-output');
+  assert.equal(responses.execution.network, 'offline-fixture');
+  assert.deepEqual(redactSecrets(responses.redaction.input), responses.redaction.output);
+
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = () => { throw new Error('network access is forbidden in this contract suite'); };
+  try {
+    await assert.doesNotReject(() => loadFixture('contract.json'));
+    await assert.doesNotReject(() => loadFixture('responses.json'));
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
 });
