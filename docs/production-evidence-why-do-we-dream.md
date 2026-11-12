@@ -6,7 +6,7 @@ Evidence captured from the completed pilot run on 2026-11-12. This report distin
 
 The existing repository successfully produced a 60-second narrated still-image episode from a canonical manifest. The pilot used GTAI-1 `flow-mcp` for Google Flow still generation and downloading, the repository Gemini TTS helper for narration, local timing/transcription for captions, and the repository FFmpeg renderer for final assembly.
 
-The pilot is technically reproducible, but it is not evidence that the proposed guided plugin exists. Human creative approval is also still pending. The retouched alternate video is a separate local derivative; the canonical Flow stills retain the provider mark.
+The pilot is technically reproducible, but it is not evidence that the proposed guided plugin exists. The user recorded approval of the complete pilot, and Boords was read back with the storyboard and all 36 frames marked Approved. The retouched alternate video is a separate local derivative; the canonical Flow stills retain the provider mark.
 
 ## Evidence matrix
 
@@ -24,7 +24,7 @@ The pilot is technically reproducible, but it is not evidence that the proposed 
 | Caption generation | Word-alignment JSON and SRT were generated from measured timings and used by the renderer. | Demonstrated |
 | FFmpeg assembly | `npm run render:stills -- projects/why-do-we-dream manifest` produced a 60.000-second 1920×1080 H.264/AAC MP4. | Demonstrated |
 | Repository safety | Original Flow stills and original MP4 remain preserved; the watermark-retouched render is stored separately. | Demonstrated |
-| Boords connection | Boords storyboard `7n28pd` contains 36 frames and all 36 have attached images. Current status is `Review Needed` for every frame. | Demonstrated |
+| Boords connection | Boords storyboard `7n28pd` contains 36 frames and all 36 have attached images. After the user's approval, a read-back confirmed the storyboard and all 36 frame statuses are `Approved`. | Demonstrated; approval recorded |
 | Automated tests | `npm test` completed with 27 passing tests and 0 failures. | Demonstrated |
 
 ## Exact pilot artifacts
@@ -50,8 +50,8 @@ The pilot is technically reproducible, but it is not evidence that the proposed 
 3. **Persistent production integration:** `scripts/production-state.mjs` and its tests prove checkpoint primitives, but the pilot did not prove a single integrated Flow → TTS → captions → render → Boords resumable state machine.
 4. **Remote execution proof:** The desktop agent reached `127.0.0.1:8787`; this does not prove that a remotely hosted agent can reach a user's local Flow MCP. A remote deployment needs a reachable authenticated bridge or an explicit same-machine execution contract.
 5. **Schema contract tests:** The live MCP tool schemas were available during the run, but the repository does not currently contain contract tests that pin the exact runtime schemas for `flow_status`, `flow_generate`, `flow_wait`, `flow_download`, `flow_assets`, `flow_transcribe`, and `flow_voices`.
-6. **Manifest reconciliation:** The manifest's per-scene fields still contain legacy values such as `generationStatus: blocked-no-flow-project` and `reviewStatus: not-generated`, even though the corresponding 36 files exist and Boords has the images attached. These fields need a deliberate reconciliation pass after human review; they should not be silently rewritten.
-7. **Human creative approval:** Boords currently reports all 36 frames as `Review Needed`. The pilot must not be called creatively approved until that review is recorded.
+6. **Manifest reconciliation:** The manifest now deliberately records the verified pilot state: each scene is `generated` and `approved`, while the top-level production provenance records the user's approval. These are explicit evidence updates, not values derived from file existence alone.
+7. **Human creative approval:** The user approved the complete pilot; no scene changes or regeneration were requested. This approval applies to the existing pilot only and does not authorize a new generation batch or publication.
 
 ## Commands used for local proof
 
