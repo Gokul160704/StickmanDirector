@@ -12,8 +12,7 @@
     {
       "episode": "Part 1",
       "scene": "Scene 1",
-      "imagePrompt": "Describe one full-frame 16:9 story moment, composition, action, lighting, and emotional beat. No titles, captions, labels, panels, or prompt text in the image.",
-      "videoPrompt": "Describe subtle, physically coherent motion from this approved still. Preserve character identity, clothing, props, composition, and art style; add no new characters or text."
+      "imagePrompt": "Describe one complete, full-frame 16:9 story moment, composition, action, lighting, and emotional beat. No titles, captions, labels, panels, or prompt text in the image."
     }
   ]
 }

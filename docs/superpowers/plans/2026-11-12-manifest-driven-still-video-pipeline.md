@@ -55,7 +55,7 @@
 
 - [ ] Add failing tests proving canonical metadata produces still-only prompts with character/prop references and no paid calls.
 - [ ] Implement canonical manifest input alongside the legacy input shape.
-- [ ] Generate separate reference and scene sections; retain legacy image-to-video text only for legacy prompt packs and document that it is not part of local rendering.
+- [ ] Generate separate reference and scene sections; remove legacy image-to-video text from prompt packs and document the still-image-only contract.
 - [ ] Run prompt-pack tests.
 
 ### Task 3: Manifest renderer and captions

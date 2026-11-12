@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 const FLOW_TOOLS = new Set(['flow_status', 'flow_generate', 'flow_wait', 'flow_download', 'flow_assets', 'flow_transcribe', 'flow_voices']);
+export const IMAGE_GENERATION_MODELS = new Set(['Nano Banana 2.1', 'Nano Banana Pro']);
 const GEMINI_TTS_MODELS = new Set(['gemini-3.8-flash-tts', 'gemini-3.8-flash-lite-tts']);
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const CHECKSUM = /^sha256:[a-f0-9]{64}$/;
@@ -14,6 +15,27 @@ export class ContractValidationError extends Error {
     this.name = 'ContractValidationError';
     this.code = code;
   }
+}
+
+export function validateStillImageGenerationRequest(input) {
+  const request = object(input, 'Flow still-image request');
+  const prohibitedKeys = new Set(['mediaType', 'operation', 'durationSeconds', 'videoPrompt', 'motionPrompt', 'videoModel']);
+  for (const key of Object.keys(request)) if (prohibitedKeys.has(key)) fail('video-generation-disabled', `Flow still-image requests cannot contain video-generation field ${key}.`);
+  if (typeof request.model === 'string' && /omni|veo|video/i.test(request.model)) fail('video-generation-disabled', 'Flow video-generation models are not supported.');
+  if (Array.isArray(request.scenes)) for (const scene of request.scenes) {
+    if (scene && typeof scene === 'object' && Object.keys(scene).some((key) => prohibitedKeys.has(key))) fail('video-generation-disabled', 'Flow scenes cannot contain video-generation instructions.');
+  }
+  return structuredClone(request);
+}
+
+export function validateImageComposer(composer, approvedAspectRatio = '16:9') {
+  object(composer, 'Flow composer settings');
+  nonEmptyString(composer.model, 'Flow composer model');
+  if (!IMAGE_GENERATION_MODELS.has(composer.model)) fail('preflight', 'Flow composer model must be an approved image-generation model.');
+  nonEmptyString(composer.aspectRatio, 'Flow composer aspect ratio');
+  if (composer.aspectRatio !== approvedAspectRatio) fail('preflight', `Flow composer aspect ratio must remain ${approvedAspectRatio} for this approved image request.`);
+  if (!Number.isInteger(composer.variants) || composer.variants < 1) fail('preflight', 'Flow composer variants must be a positive integer.');
+  return structuredClone(composer);
 }
 
 function fail(code, message) { throw new ContractValidationError(code, message); }
@@ -66,7 +88,7 @@ export function validateFlowRequest(tool, input, contract) {
     if (!Array.isArray(request.assets) || request.assets.length === 0) fail('invalid-type', 'flow_download.assets must be a non-empty array.');
     request.assets.forEach((asset, index) => safeId(asset, `flow_download.assets[${index}]`)); safeId(request.project, 'flow_download.project'); optionalEnum(request.quality, 'flow_download.quality', ['original', 'preview']);
   }
-  if (tool === 'flow_assets') optionalEnum(request.kind, 'flow_assets.kind', ['image', 'video', 'audio', 'character', 'all']);
+  if (tool === 'flow_assets') optionalEnum(request.kind, 'flow_assets.kind', ['image', 'audio', 'character', 'all']);
   if (tool === 'flow_transcribe') { safePath(request.video, 'flow_transcribe.video'); if (request.language !== undefined) nonEmptyString(request.language, 'flow_transcribe.language'); optionalBoolean(request.words, 'flow_transcribe.words'); }
   return structuredClone(request);
 }
@@ -88,8 +110,8 @@ export function validateFlowResponse(tool, input, contract, { localFiles = {} } 
   if (response.ok !== true) fail('malformed-response', `${tool} response must have ok=true.`);
   if (tool === 'flow_status') { exactKeys(response, ['ok', 'signedIn', 'inProject', 'credits', 'project'], tool); if (typeof response.signedIn !== 'boolean' || typeof response.inProject !== 'boolean') fail('malformed-response', 'flow_status response is missing account state.'); finiteNumber(response.credits, 'flow_status.credits'); if (response.credits < 0) fail('malformed-response', 'flow_status.credits must not be negative.'); safeId(response.project, 'flow_status.project'); }
   if (tool === 'flow_generate' || tool === 'flow_wait') { exactKeys(response, tool === 'flow_wait' ? ['ok', 'finished', 'jobs'] : ['ok', 'jobs'], tool); if (!Array.isArray(response.jobs)) fail('malformed-response', `${tool}.jobs must be an array.`); response.jobs.forEach((job) => { object(job, `${tool}.jobs[]`); exactKeys(job, ['id', 'status'], `${tool}.jobs[]`); safeId(job.id, `${tool}.jobs[].id`); nonEmptyString(job.status, `${tool}.jobs[].status`); }); if (tool === 'flow_wait' && typeof response.finished !== 'boolean') fail('malformed-response', 'flow_wait.finished must be boolean.'); }
-  if (tool === 'flow_download') { exactKeys(response, ['ok', 'files'], tool); if (!Array.isArray(response.files)) fail('malformed-response', 'flow_download.files must be an array.'); response.files.forEach((file) => { object(file, 'flow_download.files[]'); exactKeys(file, ['path', 'assetId', 'checksum'], 'flow_download.files[]'); safePath(file.path, 'flow_download.files[].path'); safeId(file.assetId, 'flow_download.files[].assetId'); validateChecksum(file.checksum, 'flow_download.files[].checksum'); verifyLocalChecksum(file, file.checksum, localFiles); }); }
-  if (tool === 'flow_assets') { exactKeys(response, ['ok', 'assets'], tool); if (!Array.isArray(response.assets)) fail('malformed-response', 'flow_assets.assets must be an array.'); response.assets.forEach((asset) => { object(asset, 'flow_assets.assets[]'); exactKeys(asset, ['id', 'title', 'kind', 'checksum', 'path'], 'flow_assets.assets[]'); safeId(asset.id, 'flow_assets.assets[].id'); nonEmptyString(asset.title, 'flow_assets.assets[].title'); nonEmptyString(asset.kind, 'flow_assets.assets[].kind'); validateChecksum(asset.checksum, 'flow_assets.assets[].checksum'); if (asset.path !== undefined) safePath(asset.path, 'flow_assets.assets[].path'); }); }
+  if (tool === 'flow_download') { exactKeys(response, ['ok', 'files'], tool); if (!Array.isArray(response.files)) fail('malformed-response', 'flow_download.files must be an array.'); response.files.forEach((file) => { object(file, 'flow_download.files[]'); exactKeys(file, ['path', 'assetId', 'checksum'], 'flow_download.files[]'); safePath(file.path, 'flow_download.files[].path'); if (/\.(?:mp4|webm|mov|mkv)$/i.test(file.path)) fail('video-generation-disabled', 'Flow downloads may contain still images only.'); safeId(file.assetId, 'flow_download.files[].assetId'); validateChecksum(file.checksum, 'flow_download.files[].checksum'); verifyLocalChecksum(file, file.checksum, localFiles); }); }
+  if (tool === 'flow_assets') { exactKeys(response, ['ok', 'assets'], tool); if (!Array.isArray(response.assets)) fail('malformed-response', 'flow_assets.assets must be an array.'); response.assets.forEach((asset) => { object(asset, 'flow_assets.assets[]'); exactKeys(asset, ['id', 'title', 'kind', 'checksum', 'path'], 'flow_assets.assets[]'); safeId(asset.id, 'flow_assets.assets[].id'); nonEmptyString(asset.title, 'flow_assets.assets[].title'); nonEmptyString(asset.kind, 'flow_assets.assets[].kind'); if (asset.kind === 'video') fail('video-generation-disabled', 'Flow assets may contain still images only.'); validateChecksum(asset.checksum, 'flow_assets.assets[].checksum'); if (asset.path !== undefined) safePath(asset.path, 'flow_assets.assets[].path'); }); }
   if (tool === 'flow_transcribe') { exactKeys(response, ['ok', 'words'], tool); if (!Array.isArray(response.words)) fail('malformed-response', 'flow_transcribe.words must be an array.'); response.words.forEach((word) => { object(word, 'flow_transcribe.words[]'); exactKeys(word, ['text', 'start', 'end'], 'flow_transcribe.words[]'); nonEmptyString(word.text, 'flow_transcribe.words[].text'); finiteNumber(word.start, 'flow_transcribe.words[].start'); if (word.end !== undefined) finiteNumber(word.end, 'flow_transcribe.words[].end'); }); }
   if (tool === 'flow_voices') { exactKeys(response, ['ok', 'gemini_ready', 'voices'], tool); if (typeof response.gemini_ready !== 'boolean' || !Array.isArray(response.voices)) fail('malformed-response', 'flow_voices response is incomplete.'); response.voices.forEach((voice) => { object(voice, 'flow_voices.voices[]'); exactKeys(voice, ['id', 'name'], 'flow_voices.voices[]'); safeId(voice.id, 'flow_voices.voices[].id'); nonEmptyString(voice.name, 'flow_voices.voices[].name'); }); }
   return structuredClone(response);
@@ -113,10 +135,11 @@ export function flowQuoteHash(quote) { return hash({ currency: quote.currency, p
 
 export function preflightFlowGeneration({ status, request, composer, entitlement, quote, approval } = {}) {
   object(status, 'Flow status'); if (status.signedIn !== true) fail('preflight', 'Flow account is not signed in.'); if (status.inProject !== true) fail('preflight', 'Flow project is not active.'); finiteNumber(status.credits, 'Flow status credits');
+  validateStillImageGenerationRequest(request);
   validateFlowRequest('flow_generate', request, { tools: { flow_generate: { required: ['project', 'scenes'], optional: ['max_credits', 'acknowledge_cost'] } } });
   safeId(status.project, 'Flow status project'); if (status.project !== request.project) fail('preflight', 'Flow status project does not match the requested project.');
   if (request.acknowledge_cost !== true) fail('preflight', 'Flow generation requires explicit acknowledge_cost=true.');
-  object(composer, 'Flow composer settings'); nonEmptyString(composer.model, 'Flow composer model'); nonEmptyString(composer.aspectRatio, 'Flow composer aspect ratio'); if (!Number.isInteger(composer.variants) || composer.variants < 1) fail('preflight', 'Flow composer variants must be a positive integer.');
+  validateImageComposer(composer);
   object(entitlement, 'Flow entitlement'); if (entitlement.provider !== 'flow' || entitlement.available !== true) fail('preflight', 'Flow entitlement is unavailable.');
   object(quote, 'Flow quote'); if (quote.currency !== 'flow-credits') fail('preflight', 'Flow quote currency is missing or unsupported.'); for (const field of ['perOutput', 'total', 'outputs']) finiteNumber(quote[field], `Flow quote ${field}`); const expectedOutputs = request.scenes.length * composer.variants;
   if (quote.perOutput < 0 || quote.total < 0 || !Number.isInteger(quote.outputs) || quote.outputs < 1 || quote.outputs !== expectedOutputs || quote.total !== quote.perOutput * quote.outputs) fail('preflight', 'Flow quote must be finite, nonnegative, and exactly match the requested outputs.');
@@ -126,7 +149,8 @@ export function preflightFlowGeneration({ status, request, composer, entitlement
   return { provider: 'flow', model: composer.model, aspectRatio: composer.aspectRatio, outputs: expectedOutputs, totalCredits: quote.total, requestHash, quoteHash };
 }
 
-export function prepareFlowRetry({ error, readback, failedShotIds, shotId, consented, previousRetries = [] } = {}) {
+export function prepareFlowRetry({ error, readback, failedShotIds, shotId, consented, previousRetries = [], request } = {}) {
+  if (request !== undefined) validateStillImageGenerationRequest(request);
   const normalized = validateFlowError(error); if (normalized.retryable !== true || !['timeout', 'rate-limit', 'partial-output'].includes(normalized.kind)) fail('retry-blocked', 'Flow retry requires a terminal retryable failure.');
   if (!readback?.stateChecked || !readback.assetsChecked || !['failed', 'partial'].includes(readback.jobStatus)) fail('retry-blocked', 'Flow retry requires read-back state and assets.');
   if (consented !== true || !Array.isArray(failedShotIds) || !failedShotIds.includes(shotId)) fail('retry-blocked', 'Flow retry requires explicit consent for a failed shot ID.');

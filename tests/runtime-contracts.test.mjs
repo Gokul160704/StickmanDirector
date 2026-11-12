@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import {
   ContractValidationError,
+  IMAGE_GENERATION_MODELS,
   approveGeminiTtsConsent,
   createGeminiTtsConsent,
   flowQuoteHash,
@@ -16,6 +17,7 @@ import {
   validateFlowError,
   validateFlowRequest,
   validateFlowResponse,
+  validateStillImageGenerationRequest,
 } from '../scripts/runtime-contracts.mjs';
 
 async function fixture(name) {
@@ -60,9 +62,12 @@ test('rejects malformed optional fields, unsafe IDs, traversal paths, and malfor
     expectCode(() => validateFlowRequest('flow_transcribe', { video }, contract), 'invalid-value');
   }
   expectCode(() => validateFlowRequest('flow_assets', { kind: 'unknown' }, contract), 'invalid-value');
+  expectCode(() => validateFlowRequest('flow_assets', { kind: 'video' }, contract), 'invalid-value');
   expectCode(() => validateFlowRequest('flow_status', { unexpected: true }, contract), 'invalid-value');
   expectCode(() => validateFlowResponse('flow_download', { ok: true, files: [{ path: '../escape.jpeg', assetId: 'asset-1', checksum: 'sha256:abc' }] }, contract), ['malformed-response', 'invalid-value']);
+  expectCode(() => validateFlowResponse('flow_download', { ok: true, files: [{ path: 'exports/clip.mp4', assetId: 'asset-1', checksum: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }] }, contract), 'video-generation-disabled');
   expectCode(() => validateFlowResponse('flow_assets', { ok: true, assets: [{ id: 'asset-1', title: 'scene', kind: 'image' }] }, contract), ['malformed-response', 'invalid-type']);
+  expectCode(() => validateFlowResponse('flow_assets', { ok: true, assets: [{ id: 'asset-1', title: 'clip', kind: 'video', checksum: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }] }, contract), 'video-generation-disabled');
   expectCode(() => validateFlowResponse('flow_voices', { ok: true, gemini_ready: true, voices: [{}] }, contract), ['malformed-response', 'invalid-type']);
   expectCode(() => validateFlowResponse('flow_download', { ok: true, files: [{ path: 'images/file.jpeg', assetId: 'asset-1', checksum: 'sha256:placeholder' }] }, contract), 'malformed-response');
   const status = { ok: true, signedIn: true, inProject: true, credits: 50 };
@@ -110,9 +115,32 @@ test('requires finite, exact, consented Flow quotes and binds approval to the co
   expectCode(() => preflightFlowGeneration({ status, request, composer, entitlement, quote: { ...quote, perOutput: 2, total: 2 }, approval: validApproval }), 'preflight');
 });
 
+test('rejects video-generation intent before Flow validation or provider preflight', () => {
+  const stillRequest = { project: 'synthetic-project', scenes: [{ id: 'scene-01', prompt: 'A quiet room.', references: [] }] };
+  assert.deepEqual(validateStillImageGenerationRequest(stillRequest), stillRequest);
+  for (const request of [
+    { ...stillRequest, mediaType: 'video' },
+    { ...stillRequest, operation: 'image-to-video', durationSeconds: 8 },
+    { ...stillRequest, scenes: [{ ...stillRequest.scenes[0], videoPrompt: 'Animate the character.' }] },
+  ]) expectCode(() => validateStillImageGenerationRequest(request), 'video-generation-disabled');
+});
+
+test('allows only image-generation models and preserves the approved 16:9 image ratio', () => {
+  assert.deepEqual([...IMAGE_GENERATION_MODELS].sort(), ['Nano Banana 2.1', 'Nano Banana Pro'].sort());
+  const status = { ok: true, signedIn: true, inProject: true, credits: 50, project: 'synthetic-project' };
+  const request = { project: 'synthetic-project', scenes: [{ id: 'scene-01', prompt: 'A quiet room.', references: [] }], max_credits: 4, acknowledge_cost: true };
+  const entitlement = { provider: 'flow', available: true, source: 'account' };
+  const quote = { currency: 'flow-credits', perOutput: 4, total: 4, outputs: 1 };
+  const composer = { model: 'Nano Banana Pro', aspectRatio: '9:16', variants: 1 };
+  const approval = { approved: true, requestHash: flowRequestHash(request, composer), quoteHash: flowQuoteHash(quote) };
+  expectCode(() => preflightFlowGeneration({ status, request, composer, entitlement, quote, approval }), 'preflight');
+  expectCode(() => preflightFlowGeneration({ status, request, composer: { ...composer, model: 'Omni 1.1 Flash', aspectRatio: '16:9' }, entitlement, quote, approval: { ...approval, requestHash: flowRequestHash(request, { ...composer, model: 'Omni 1.1 Flash', aspectRatio: '16:9' }) } }), 'preflight');
+});
+
 test('requires read-back before timeout or partial-output retry and permits only one explicitly consented failed shot', () => {
   const base = { error: { kind: 'timeout', retryable: true, safeMessage: 'timed out' }, readback: { stateChecked: true, assetsChecked: true, jobStatus: 'failed' }, failedShotIds: ['scene-01'], shotId: 'scene-01', consented: true, previousRetries: [] };
   assert.deepEqual(prepareFlowRetry(base), { shotId: 'scene-01', status: 'retry-authorized' });
+  expectCode(() => prepareFlowRetry({ ...base, request: { project: 'synthetic-project', mediaType: 'video', scenes: [{ id: 'scene-01', prompt: 'Animate this.' }] } }), 'video-generation-disabled');
   for (const kind of ['pending', 'timeout', 'partial-output']) {
     expectCode(() => prepareFlowRetry({ ...base, error: { kind, retryable: true, safeMessage: 'not ready' }, readback: kind === 'pending' ? null : { stateChecked: false, assetsChecked: true, jobStatus: 'failed' } }), 'retry-blocked');
   }

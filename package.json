@@ -1,7 +1,7 @@
 {
   "name": "stickmandirector",
   "version": "1.0.0",
-  "description": "A reusable workflow for planning 16:9 illustrated stickman story series, producing stills and image-to-video in Google Flow, managing storyboards in Boords, and preparing Gemini narration.",
+  "description": "A reusable workflow for planning 16:9 illustrated stickman story series, producing still images in Google Flow, managing storyboards in Boords, and assembling narrated videos locally with FFmpeg.",
   "private": true,
   "type": "module",
   "engines": {

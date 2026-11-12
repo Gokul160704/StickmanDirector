@@ -53,7 +53,7 @@ The review MP4 and SRT are written under that project folder. This compatibility
 3. Create and review character and prop references in Google Flow before scene art.
 4. Use the Google Flow MCP for visual exploration, generation, and edits. Check the live project, model, and credit cost before generation; obtain approval before spending credits. Use browser control only as a fallback if the MCP is unavailable.
 5. Attach approved Flow images to Boords frames and review art as full-size scenes and as a sequence. Reject prompt cards, scene labels, contact sheets, split panels, and instruction text.
-6. Generate motion selectively from approved stills in Flow, produce narration using [AUDIO.md](AUDIO.md), then assemble the approved clips, captions, and sound.
+6. Produce approved narration using [AUDIO.md](AUDIO.md), then assemble the approved stills, captions, and sound locally with FFmpeg. Flow video generation is not part of this workflow.
 
 See [docs/workflow.md](docs/workflow.md), [docs/repository-policy.md](docs/repository-policy.md), and [AGENTS.md](AGENTS.md) for full operating rules.
 

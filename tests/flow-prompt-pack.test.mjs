@@ -23,3 +23,20 @@ test('builds still-image prompts from canonical episode metadata', async () => {
     assert.doesNotMatch(text, /Image-to-video/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('does not emit obsolete video prompts from a legacy prompt source', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'stickman-prompts-'));
+  try {
+    const file = path.join(root, 'flow-prompts.json');
+    await writeFile(file, JSON.stringify({
+      series: 'Series',
+      aspectRatio: '16:9',
+      styleAnchor: 'clean stickman',
+      scenes: [{ imagePrompt: 'A full-frame still illustration.', videoPrompt: 'Animate this scene for eight seconds.' }],
+    }));
+    const output = await buildPromptPack(file);
+    const text = await readFile(output, 'utf8');
+    assert.match(text, /Still image/);
+    assert.doesNotMatch(text, /videoPrompt|image-to-video|Optional external motion handoff|Animate this scene/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
