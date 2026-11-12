@@ -46,13 +46,20 @@ function requireShotId(shotId) {
   if (typeof shotId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(shotId)) throw new Error('shotId must be a safe identifier.');
 }
 
+function withNextHumanAction(session) {
+  const question = getNextQuestion(session);
+  session.nextHumanAction = question
+    ? { type: 'answer-question', questionId: question.id }
+    : { type: 'approve-stage', stage: session.stage };
+  return session;
+}
+
 export function createGuidedProducer({ episodeId, providerCatalog = DEFAULT_PROVIDER_CATALOG, providerEntitlements = [] } = {}) {
   if (!Array.isArray(providerEntitlements)) throw new Error('providerEntitlements must be an array.');
   const session = createProducerSession({ episodeId, providerCatalog });
   session.providerEntitlements = structuredClone(providerEntitlements);
   session.regenerationRequests = [];
-  session.nextHumanAction = { type: 'answer-question', questionId: 'source' };
-  return session;
+  return withNextHumanAction(session);
 }
 
 export function getNextQuestion(session) {
@@ -65,8 +72,7 @@ export function answerGuidedChoice(session, questionId, value) {
   if (question.stage !== session.stage) throw new Error(`Question ${questionId} is not part of the current stage ${session.stage}.`);
   if (question.stage === 'providers') return selectGuidedProvider(session, questionId, value);
   const next = answerQuestion(session, questionId, value);
-  next.nextHumanAction = { type: 'answer-question', questionId: getNextQuestion(next)?.id ?? null };
-  return next;
+  return withNextHumanAction(next);
 }
 
 export function advanceGuidedStage(session) {
@@ -74,29 +80,28 @@ export function advanceGuidedStage(session) {
   if (missing.length) throw new Error(`Cannot advance from ${session.stage}; answer ${missing[0].id} first.`);
   const nextStage = STAGES[STAGES.indexOf(session.stage) + 1];
   const next = advanceStage(session, nextStage);
-  next.nextHumanAction = { type: 'answer-question', questionId: getNextQuestion(next)?.id ?? null };
-  return next;
+  return withNextHumanAction(next);
 }
 
 export function approveGuidedStage(session, stage) {
   const missing = GUIDED_QUESTIONS.filter((question) => question.stage === stage && session.answers[question.id] === undefined);
   if (missing.length) throw new Error(`Cannot approve ${stage}; answer ${missing[0].id} first.`);
-  return approveStage(session, stage);
+  return withNextHumanAction(approveStage(session, stage));
 }
 
 export function editGuidedChoice(session, questionId, value) {
   const question = requireChoice(questionId, value);
   if (question.stage !== session.stage) throw new Error(`Question ${questionId} is not part of the current stage ${session.stage}.`);
   if (question.stage === 'providers') return selectGuidedProvider(session, questionId, value);
-  return answerQuestion(session, questionId, value);
+  return withNextHumanAction(answerQuestion(session, questionId, value));
 }
 
 export function goBackGuidedStage(session, targetStage) {
-  return goBack(session, targetStage);
+  return withNextHumanAction(goBack(session, targetStage));
 }
 
 export function invalidateGuidedStage(session, stage, reason) {
-  return invalidateFrom(session, stage, reason);
+  return withNextHumanAction(invalidateFrom(session, stage, reason));
 }
 
 export function saveGuidedProducer(session) {
@@ -119,7 +124,7 @@ export function selectGuidedProvider(session, questionId, providerId, entitlemen
   const selected = resolveProviderChoice({ providerId, catalog: session.providerCatalog, entitlements: effectiveEntitlements });
   const next = answerQuestion(session, questionId, selected.providerId);
   next.providerEntitlements = structuredClone(entitlements);
-  return next;
+  return withNextHumanAction(next);
 }
 
 export function regenerateSelectedShot(session, shotId) {

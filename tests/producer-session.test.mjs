@@ -71,7 +71,9 @@ test('Back and Edit preserve approvals until explicit invalidation is recorded',
   session = approveGuidedStage(session, 'script');
   session = goBackGuidedStage(session, 'preferences');
   assert.equal(session.stage, 'preferences');
+  assert.equal(session.nextHumanAction.questionId, 'duration');
   session = editGuidedChoice(session, 'tone', 'dramatic');
+  assert.equal(session.nextHumanAction.questionId, 'duration');
   assert.ok(session.approvedStages.script);
   session = invalidateGuidedStage(session, 'script', 'tone changed');
   assert.equal(session.approvedStages.script, undefined);
