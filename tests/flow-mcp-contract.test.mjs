@@ -51,6 +51,7 @@ test('pins representative success envelopes for every audited tool', async () =>
   assert.equal(responses.success.flow_generate.jobs[0].id, 'job-synthetic-001');
   assert.equal(responses.success.flow_wait.finished, true);
   assert.equal(responses.success.flow_download.files[0].path, 'images/scene-01.jpeg');
+  assert.equal(responses.success.flow_download.files[0].assetId, 'asset-synthetic-001');
   assert.equal(responses.success.flow_assets.assets[0].title, 'scene-01');
   assert.equal(responses.success.flow_transcribe.words[0].text, 'Tonight');
   assert.equal(responses.success.flow_voices.gemini_ready, true);
