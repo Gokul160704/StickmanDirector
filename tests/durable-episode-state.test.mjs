@@ -13,6 +13,7 @@ import {
   reconcileProductionState,
   requestSafeShotRetry,
   reapproveProductionStage,
+  transitionProductionState,
   saveProductionState,
   loadProductionState,
 } from '../scripts/production-state.mjs';
@@ -62,12 +63,12 @@ test('records attempts idempotently and keeps only canonical status values', () 
   assert.deepEqual(PRODUCTION_STATUSES, ['draft', 'waiting-for-human', 'queued', 'running', 'generated', 'downloaded', 'reviewed', 'approved', 'rejected', 'failed', 'skipped', 'stale', 'needs-reconciliation']);
   const first = recordProductionAttempt(state, 'research', {
     idempotencyKey: ' Research  1 ', status: 'approved', dependencyHash: 'sha256:abc', artifact: 'research/notes.md',
-    approvalBinding: { approvalId: 'human-1', actor: 'reviewer', approvedAt: '2026-11-12T00:00:00.000Z' },
+    approvalBinding: { approvalId: 'human-1', actor: 'reviewer', dependencyHash: 'sha256:abc', approvedAt: '2026-11-12T00:00:00.000Z' },
     receipt: { provider: 'offline', apiKey: 'do-not-store' },
   });
   const second = recordProductionAttempt(first, 'research', {
     idempotencyKey: ' research  1 ', status: 'approved', dependencyHash: 'sha256:abc', artifact: 'research/notes.md',
-    approvalBinding: { approvalId: 'human-1', actor: 'reviewer', approvedAt: '2026-11-12T00:00:00.000Z' },
+    approvalBinding: { approvalId: 'human-1', actor: 'reviewer', dependencyHash: 'sha256:abc', approvedAt: '2026-11-12T00:00:00.000Z' },
     receipt: { provider: 'offline', apiKey: 'do-not-store' },
   });
   assert.deepEqual(second, first);
@@ -84,9 +85,13 @@ test('requires complete dependency and approval proof for approved attempts', ()
   assert.throws(() => recordProductionAttempt(state, 'research', { idempotencyKey: 'approved-2', status: 'approved', dependencyHash: 'sha256:abc', approvalBinding: { approvalId: 'human-1', actor: 'reviewer' } }), /approvedAt/i);
   const accepted = recordProductionAttempt(state, 'research', {
     idempotencyKey: 'approved-3', status: 'approved', dependencyHash: 'sha256:abc',
-    approvalBinding: { approvalId: 'human-1', actor: 'reviewer', approvedAt: '2026-11-12T00:00:00.000Z' },
+    approvalBinding: { approvalId: 'human-1', actor: 'reviewer', dependencyHash: 'sha256:abc', approvedAt: '2026-11-12T00:00:00.000Z' },
   });
   assert.equal(accepted.stages.research.status, 'approved');
+  assert.throws(() => recordProductionAttempt(state, 'research', {
+    idempotencyKey: 'approved-4', status: 'approved', dependencyHash: 'sha256:abc',
+    approvalBinding: { approvalId: 'human-4', actor: 'reviewer', dependencyHash: 'sha256:other', approvedAt: '2026-11-12T00:00:00.000Z' },
+  }), /equal|match|dependencyHash/i);
 });
 
 test('normalizes persisted approval without proof to needs-reconciliation', async () => {
@@ -95,6 +100,7 @@ test('normalizes persisted approval without proof to needs-reconciliation', asyn
     const file = path.join(root, 'state.json');
     const state = createProductionState('episode-approval-01');
     state.stages.research = { status: 'approved' };
+    state.completedStages.research = { status: 'approved' };
     await writeFile(file, JSON.stringify(state));
     const loaded = await loadProductionState(file, { recover: false });
     assert.equal(loaded.stages.research.status, 'needs-reconciliation');
@@ -141,6 +147,25 @@ test('fails closed when durable projections contain legacy-only unknown stage da
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test('fails closed when dual projections disagree on a stage status', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'stickman-status-projection-'));
+  try {
+    const file = path.join(root, 'state.json');
+    const state = createProductionState('dual-status-01');
+    state.stages.research = { status: 'failed' };
+    state.completedStages.research = { status: 'pending' };
+    await writeFile(file, JSON.stringify(state));
+    await assert.rejects(() => loadProductionState(file, { recover: false }), /status|projection|conflict/i);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('does not project unsafe statuses as legacy complete', () => {
+  for (const status of ['rejected', 'stale', 'needs-reconciliation']) {
+    const state = recordProductionAttempt(createProductionState(`unsafe-projection-${status}`), 'research', { idempotencyKey: `${status}-1`, status });
+    assert.equal(state.completedStages.research.status, status);
+  }
+});
+
 test('invalidates only affected completed records and preserves active failure semantics', () => {
   let state = recordProductionAttempt(createProductionState('episode-01'), 'research', {
     idempotencyKey: 'research-1', status: 'approved', dependencyHash: 'sha256:old', approvalBinding: { approvalId: 'human-1', actor: 'reviewer', approvedAt: '2026-11-12T00:00:00.000Z', dependencyHash: 'sha256:old' },
@@ -163,10 +188,21 @@ test('invalidates only affected completed records and preserves active failure s
   assert.equal(reconciled.stages.images.status, 'skipped');
   assert.equal(reconciled.actions[0].type, 'human-reapproval-required');
   assert.equal(reconciled.actions[0].dependency.previousHash, 'sha256:old');
-  const reapproved = reapproveProductionStage(reconciled, 'research', { approvalId: 'human-2', dependencyHash: 'sha256:new' });
+  const reapproved = reapproveProductionStage(reconciled, 'research', { approvalId: 'human-2', dependencyHash: 'sha256:new', actor: 'reviewer' });
   assert.equal(reapproved.stages.research.status, 'approved');
   assert.equal(reapproved.approvalBindings.research.dependencyHash, 'sha256:new');
-  assert.throws(() => reapproveProductionStage(reconciled, 'research', { approvalId: 'human-3', dependencyHash: 'sha256:wrong' }), /currentHash|dependencyHash/i);
+  assert.throws(() => reapproveProductionStage(reconciled, 'research', { approvalId: 'human-3', dependencyHash: 'sha256:wrong', actor: 'reviewer' }), /currentHash|dependencyHash/i);
+  for (const value of ['', '  ', 42]) assert.throws(() => reapproveProductionStage(reconciled, 'research', { approvalId: value, dependencyHash: 'sha256:new', actor: 'reviewer' }), /approvalId/i);
+  for (const value of ['', '  ', 42]) assert.throws(() => reapproveProductionStage(reconciled, 'research', { approvalId: 'human-4', dependencyHash: value, actor: 'reviewer' }), /dependencyHash/i);
+  for (const value of ['', '  ', 42]) assert.throws(() => reapproveProductionStage(reconciled, 'research', { approvalId: 'human-5', dependencyHash: 'sha256:new', actor: value }), /actor/i);
+});
+
+test('does not silently downgrade an approved stage while advancing', () => {
+  const state = recordProductionAttempt(createProductionState('episode-01'), 'research', {
+    idempotencyKey: 'approved-transition-1', status: 'approved', dependencyHash: 'sha256:abc',
+    approvalBinding: { approvalId: 'human-1', actor: 'reviewer', dependencyHash: 'sha256:abc', approvedAt: '2026-11-12T00:00:00.000Z' },
+  });
+  assert.throws(() => transitionProductionState(state, 'script'), /approved|approval|re-approval/i);
 });
 
 test('rejects replay when material receipt, error, or arbitrary metadata changes', () => {
