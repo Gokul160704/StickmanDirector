@@ -13,9 +13,21 @@ the following machine-readable sections:
 ## Resume and checkpoints
 
 Use `scripts/production-state.mjs` to create and advance a checkpoint. It refuses to
-skip stages and writes checkpoints through a temporary file followed by a rename.
+skip stages and writes checkpoints through a temporary file followed by a rename. A
+previous checkpoint is retained as a local `.bak` recovery candidate; a malformed
+primary checkpoint is recovered only from that backup or an interrupted temporary file.
 Completed artifacts and errors remain in the project-local state file so an interrupted
 run can resume without regenerating approved work.
+
+The state file is operational bookkeeping, not a second creative manifest. The only
+canonical creative manifest remains `episode.json`, and `importEpisodeManifest` accepts
+only validated schema v1 data. Legacy data must be converted explicitly before import.
+State statuses are limited to `pending`, `running`, `complete`, `failed`, `blocked`,
+`invalidated`, and `skipped`. Attempts require an idempotency key; repeating a key is a
+no-op. Call `reconcileProductionState` with the current dependency hashes to invalidate
+the changed stage and downstream completed work. State persistence removes secret-like
+receipt fields; provider/network calls and receipt contents are deliberately outside
+this offline foundation.
 
 ## Boords handoff
 

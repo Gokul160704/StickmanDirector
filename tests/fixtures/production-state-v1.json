@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "episodeId": "fixture-episode-01",
+  "stage": "research",
+  "completedStages": {
+    "research": { "status": "pending" },
+    "script": { "status": "pending" },
+    "continuity": { "status": "pending" },
+    "storyboard": { "status": "pending" },
+    "references": { "status": "pending" },
+    "images": { "status": "pending" },
+    "audio": { "status": "pending" },
+    "captions": { "status": "pending" },
+    "rendering": { "status": "pending" },
+    "QA": { "status": "pending" }
+  },
+  "pendingStages": ["script", "continuity", "storyboard", "references", "images", "audio", "captions", "rendering", "QA"],
+  "artifacts": [],
+  "errors": [],
+  "updatedAt": "2026-01-01T00:00:00.000Z"
+}

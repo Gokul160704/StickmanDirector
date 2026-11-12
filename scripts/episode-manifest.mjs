@@ -107,8 +107,17 @@ export function validateEpisodeManifest(input, { root = process.cwd() } = {}) {
   };
 }
 
+export function importEpisodeManifest(input, options = {}) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) fail('top level must be an object.');
+  if (input.schemaVersion !== 1) {
+    if (input.schemaVersion === undefined) fail('schemaVersion is required; legacy data needs an explicit v1 adapter.');
+    fail('schemaVersion must be 1.');
+  }
+  return validateEpisodeManifest(structuredClone(input), options);
+}
+
 export async function loadEpisodeManifest(file, { root = path.dirname(path.resolve(file)) } = {}) {
   const source = path.resolve(file);
   const data = JSON.parse((await readFile(source, 'utf8')).replace(/^\uFEFF/, ''));
-  return validateEpisodeManifest(data, { root });
+  return importEpisodeManifest(data, { root });
 }
