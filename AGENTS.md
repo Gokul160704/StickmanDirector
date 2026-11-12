@@ -1,5 +1,16 @@
 # StickmanDirector workflow
 
+## Development queue and agent governance
+
+- The authoritative development queue is the Trello board [Stickman Director](https://trello.com/b/Xg8JRBPu/stickman-director). Use its lists, card descriptions, checklists, comments, labels, and movement history as the source of truth for task status and implementation readiness. GitHub Issues, pull requests, commits, CI, and repository documents are supporting code evidence, not a parallel authoritative queue. Do not create, configure, or rely on GitHub Projects v2 for development status.
+- A card is not Worker-ready merely because it exists or has a label. Chief must verify the card's scope, dependencies, acceptance criteria, repository baseline, test commands, risk, and human gates, then record a self-contained handoff in Trello and move only that verified card to `Ready`.
+- Chief and Worker sessions are always manually invoked or scheduled by the owner. No Trello event, GitHub event, label, comment, webhook, or Actions workflow may automatically launch an agent. A Worker may implement only a card explicitly handed off by Chief and currently in `Ready`; it must claim the card in a Trello comment before changing status or code.
+- Preserve the role boundary: Chief researches, specifies, reconciles blockers, and independently reviews; Worker implements the scoped change, runs the stated checks, opens or updates the PR, and hands the card back to Chief for review. Never self-certify independent acceptance, merge authorization, production acceptance, or human approval.
+- Keep Trello state and claims read-back verified. On ambiguous writes, conflicting claims, missing dependencies, stale cards, or unclear ownership, stop and leave the card blocked for Chief reconciliation rather than guessing or launching another agent. Record exact branch/SHA, PR, tests, evidence, and anything not run in the card or linked PR.
+- Development governance changes require a scoped PR and review. This Trello policy does not authorize product implementation, agent dispatch, paid generation, external publication, deletion, or changes to repository protections, credentials, or provider settings.
+- Production safeguards remain binding: Boords review and human creative approval are distinct from technical tests; Google Flow model, aspect ratio, credits, and per-output cost must be checked live before every generation; explicit approval is required for each revised or paid batch; Gemini/API billing and Flow credits remain separate; and no media may be published without the applicable human approval.
+- The portable protocol is [docs/GITHUB_AGENT_GOVERNANCE.md](docs/GITHUB_AGENT_GOVERNANCE.md), retained under its historical filename for compatibility but governing Trello rather than GitHub Projects.
+
 Apply these rules to every new stickman video series developed in this workspace.
 
 ## Story and visual production
