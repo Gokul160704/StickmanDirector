@@ -138,7 +138,7 @@ export function transitionProductionState(state, nextStage, { artifact, note } =
   const currentIndex = PRODUCTION_STAGES.indexOf(state.stage); const nextIndex = PRODUCTION_STAGES.indexOf(nextStage);
   if (nextIndex !== currentIndex + 1) throw new Error(`Cannot advance production stage from ${state.stage} to ${nextStage}; transitions must move forward exactly one step.`);
   const next = normalizeState(clone(state));
-  if (['approved', 'reviewed', 'rejected', 'waiting-for-human', 'needs-reconciliation'].includes(next.stages[state.stage].status)) throw new Error(`Cannot advance production stage ${state.stage} while it requires human approval or reconciliation.`);
+  if (['failed', 'stale', 'approved', 'reviewed', 'rejected', 'waiting-for-human', 'needs-reconciliation'].includes(next.stages[state.stage].status)) throw new Error(`Cannot advance production stage ${state.stage} while it requires retry, human approval, or reconciliation.`);
   next.stages[state.stage] = { ...next.stages[state.stage], status: 'generated', completedAt: now(), ...(note ? { note } : {}) };
   next.completedStages = legacyStagesFromCanonical(next.stages); next.stage = nextStage;
   next.pendingStages = PRODUCTION_STAGES.slice(nextIndex + 1);
@@ -158,6 +158,7 @@ export function recordProductionAttempt(state, stage, options = {}) {
     if (existing.replayFingerprint !== replayFingerprint) throw new Error('Idempotency key replay does not match the original attempt.');
     return next;
   }
+  if (['approved', 'reviewed'].includes(next.stages[stage].status) && status !== next.stages[stage].status) throw new Error(`Cannot overwrite ${next.stages[stage].status} stage ${stage} without explicit invalidation or re-approval.`);
   next.attempts.push(sanitize({ idempotencyKey: normalizedKey, replayFingerprint, stage, status, dependencyHash: hash, artifact, error, shotId, receiptReadback, assetReadback, approvalBinding, ...metadata, recordedAt: now() }));
   next.stages[stage] = { ...next.stages[stage], ...(requestedStatus === 'blocked' ? { legacyStatus: 'blocked' } : {}), status, ...(hash ? { dependencyHash: hash } : {}), ...(approvalBinding ? { approvalBinding } : {}), ...(error ? { error: String(error) } : {}), updatedAt: now() };
   if (approvalBinding) next.approvalBindings = { ...next.approvalBindings, [stage]: approvalBinding };

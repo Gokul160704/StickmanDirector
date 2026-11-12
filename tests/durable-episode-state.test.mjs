@@ -205,6 +205,25 @@ test('does not silently downgrade an approved stage while advancing', () => {
   assert.throws(() => transitionProductionState(state, 'script'), /approved|approval|re-approval/i);
 });
 
+test('refuses attempts that overwrite an approved stage without invalidation', () => {
+  const state = recordProductionAttempt(createProductionState('episode-01'), 'research', {
+    idempotencyKey: 'approved-overwrite-1', status: 'approved', dependencyHash: 'sha256:abc',
+    approvalBinding: { approvalId: 'human-1', actor: 'reviewer', dependencyHash: 'sha256:abc', approvedAt: '2026-11-12T00:00:00.000Z' },
+  });
+  for (const status of ['failed', 'stale', 'skipped', 'generated']) {
+    assert.throws(() => recordProductionAttempt(state, 'research', { idempotencyKey: `overwrite-${status}`, status, dependencyHash: 'sha256:def' }), /approved|invalidation|re-approval/i);
+  }
+});
+
+test('requires retry or reconciliation before advancing failed or stale stages', () => {
+  for (const status of ['failed', 'stale']) {
+    const state = recordProductionAttempt(createProductionState(`blocked-transition-${status}`), 'research', {
+      idempotencyKey: `stage-${status}`, status,
+    });
+    assert.throws(() => transitionProductionState(state, 'script'), /failed|stale|retry|reconciliation/i);
+  }
+});
+
 test('rejects replay when material receipt, error, or arbitrary metadata changes', () => {
   const state = createProductionState('episode-01');
   const first = recordProductionAttempt(state, 'research', {
