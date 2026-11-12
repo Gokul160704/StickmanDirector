@@ -86,6 +86,7 @@ export function approveGuidedStage(session, stage) {
 
 export function editGuidedChoice(session, questionId, value) {
   const question = requireChoice(questionId, value);
+  if (question.stage !== session.stage) throw new Error(`Question ${questionId} is not part of the current stage ${session.stage}.`);
   if (question.stage === 'providers') return selectGuidedProvider(session, questionId, value);
   return answerQuestion(session, questionId, value);
 }
@@ -112,7 +113,10 @@ export function selectGuidedProvider(session, questionId, providerId, entitlemen
   if (!question || question.stage !== 'providers') throw new Error(`Unknown provider question: ${questionId}.`);
   if (session.stage !== 'providers') throw new Error(`Provider choices are only available during the providers stage, not ${session.stage}.`);
   if (!question.choices.includes(providerId)) throw new Error(`Invalid choice for ${questionId}: ${providerId}.`);
-  const selected = resolveProviderChoice({ providerId, catalog: session.providerCatalog, entitlements });
+  const effectiveEntitlements = providerId === 'manual'
+    ? [...entitlements, { providerId: 'manual', available: true, source: 'offline' }]
+    : entitlements;
+  const selected = resolveProviderChoice({ providerId, catalog: session.providerCatalog, entitlements: effectiveEntitlements });
   const next = answerQuestion(session, questionId, selected.providerId);
   next.providerEntitlements = structuredClone(entitlements);
   return next;

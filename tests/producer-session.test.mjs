@@ -95,6 +95,14 @@ test('provider answers and edits enforce entitlement and provider-stage ordering
   assert.throws(() => editGuidedChoice(session, 'provider.image', 'flow'), /not currently available/);
 });
 
+test('future-stage edits require an explicit stage transition and manual provider is offline-safe', () => {
+  const session = createGuidedProducer({ episodeId: 'episode-01' });
+  assert.throws(() => editGuidedChoice(session, 'duration', 'standard'), /not part of the current stage/);
+  const providerSession = { ...session, stage: 'providers' };
+  const selected = selectGuidedProvider(providerSession, 'provider.image', 'manual');
+  assert.equal(selected.answers['provider.image'], 'manual');
+});
+
 test('approval requires every guided answer in the stage', () => {
   const session = createGuidedProducer({ episodeId: 'episode-01' });
   assert.throws(() => approveGuidedStage(session, 'entry'), /answer source first/);
