@@ -51,3 +51,19 @@ RESUME -> exact saved stage and choices
 The automated evidence is `tests/producer-session.test.mjs`. The test suite
 stubs `fetch` only to prove that startup does not call it; no provider or
 network service is invoked.
+
+## Offline Producer E2E verification
+
+The no-spend integration harness is `scripts/producer-e2e.mjs` and its focused
+suite is `tests/producer-e2e.test.mjs`. Run it with:
+
+```text
+node --test tests/producer-e2e.test.mjs
+```
+
+It creates temporary synthetic stills and audio, records explicitly
+`offline-synthetic` receipts, renders a local 1920x1080 H.264/AAC MP4 and SRT,
+and verifies recovery, one-shot retry/read-back, dependency invalidation, and
+missing-asset failures. It never calls Flow, Gemini, Boords, or a network
+service. Its `release.approved` result remains false until a separate human
+creative decision is supplied; passing this suite is not production approval.
