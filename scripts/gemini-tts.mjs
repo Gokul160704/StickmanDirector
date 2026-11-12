@@ -32,7 +32,9 @@ export async function generateSpeech({requestPath,outputPath,allowNetwork=false}
   if(!response.ok) { const status=response.status; await response.body?.cancel(); safeError(`Gemini TTS rejected the request (HTTP ${status}). Provider details were withheld; no automatic retry was made.`); }
   let body;
   try { body=await response.json(); } catch { safeError('Gemini TTS returned an unreadable response; no output was written.'); }
-  const encoded=body?.output_audio?.data;
+  const encoded=body?.output_audio?.data
+    ?? body?.steps?.flatMap((step)=>Array.isArray(step?.content)?step.content:[])
+      .find((part)=>part?.type==='audio'&&typeof part?.data==='string')?.data;
   if(typeof encoded!=='string'||!encoded.length) safeError('Gemini TTS response did not contain output_audio.data; no output was written.');
   const wav=Buffer.from(encoded,'base64');
   if(wav.length<44||wav.toString('ascii',0,4)!=='RIFF'||wav.toString('ascii',8,12)!=='WAVE') safeError('Gemini TTS response was not a valid WAV payload; no output was written.');

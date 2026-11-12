@@ -161,7 +161,8 @@ async function renderPlan(plan, { replace = false } = {}) {
   const entries = plan.mode === 'manifest' ? plan.captionEntries : plan.captionTexts.map((text, i) => ({ startSeconds: i * duration / SCENES + 0.1, endSeconds: Math.min((i + 1) * duration / SCENES, i * duration / SCENES + 2.6), text }));
   const out = plan.mode === 'manifest' ? plan.out : path.join(plan.root, 'output', `part-${plan.part}-review.mp4`);
   const captionDir = path.join(plan.root, 'captions'); await mkdir(captionDir, { recursive: true });
-  const srtPath = await assertPathInsideRoot(plan.root, path.join(captionDir, plan.mode === 'manifest' ? `${plan.manifest.episodeId}.srt` : `part-${plan.part}.srt`), 'caption output path');
+  const manifestCaptionPath = plan.mode === 'manifest' ? plan.manifest.captions?.path : null;
+  const srtPath = await assertPathInsideRoot(plan.root, manifestCaptionPath ? path.resolve(plan.root, manifestCaptionPath) : path.join(captionDir, plan.mode === 'manifest' ? `${plan.manifest.episodeId}.srt` : `part-${plan.part}.srt`), 'caption output path');
   validateCaptionEntries(entries, duration);
   if (await exists(srtPath) && !replace) throw new Error(`Refusing to overwrite existing caption sidecar: ${srtPath}. Re-run with --replace after reviewing the current output.`);
   const srtTemporary = `${srtPath}.tmp-${process.pid}-${Date.now()}`;
