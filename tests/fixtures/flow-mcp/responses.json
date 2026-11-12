@@ -3,8 +3,8 @@
     "flow_status": { "ok": true, "signedIn": true, "inProject": true, "credits": 50, "project": "synthetic-project" },
     "flow_generate": { "ok": true, "jobs": [{ "id": "job-synthetic-001", "status": "queued" }] },
     "flow_wait": { "ok": true, "finished": true, "jobs": [{ "id": "job-synthetic-001", "status": "completed" }] },
-    "flow_download": { "ok": true, "files": [{ "path": "images/scene-01.jpeg", "assetId": "asset-synthetic-001", "checksum": "sha256:synthetic-scene-01" }] },
-    "flow_assets": { "ok": true, "assets": [{ "id": "asset-synthetic-001", "title": "scene-01", "kind": "image", "checksum": "sha256:synthetic-scene-01" }] },
+    "flow_download": { "ok": true, "files": [{ "path": "images/scene-01.jpeg", "assetId": "asset-synthetic-001", "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }] },
+    "flow_assets": { "ok": true, "assets": [{ "id": "asset-synthetic-001", "title": "scene-01", "kind": "image", "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }] },
     "flow_transcribe": { "ok": true, "words": [{ "text": "Tonight", "start": 0, "end": 0.4 }] },
     "flow_voices": { "ok": true, "gemini_ready": true, "voices": [{ "id": "charon", "name": "Charon" }] }
   },

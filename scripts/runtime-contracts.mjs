@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 const FLOW_TOOLS = new Set(['flow_status', 'flow_generate', 'flow_wait', 'flow_download', 'flow_assets', 'flow_transcribe', 'flow_voices']);
 const GEMINI_TTS_MODELS = new Set(['gemini-3.8-flash-tts', 'gemini-3.8-flash-lite-tts']);
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
-const CHECKSUM = /^sha256:[A-Za-z0-9._-]+$/;
+const CHECKSUM = /^sha256:[a-f0-9]{64}$/;
 const SECRET_KEY = /api[-_]?key|authorization|cookie|access[-_]?token|secret|password|credential|token/i;
 const SECRET_VALUE = /bearer\s+\S+|(?:sk|AIza|gh[pousr]|xox[baprs]|ya29)[-_][A-Za-z0-9._-]+|-----BEGIN[^\n]+-----[\s\S]*?-----END[^\n]+-----/i;
 
@@ -22,10 +23,11 @@ function finiteNumber(value, field) { if (typeof value !== 'number' || !Number.i
 function safeId(value, field) { nonEmptyString(value, field); if (!SAFE_ID.test(value)) fail('invalid-value', `${field} must be a safe identifier.`); return value; }
 function safePath(value, field) {
   nonEmptyString(value, field);
-  if (/^(?:[A-Za-z]:[\\/]|[\\/])/.test(value) || /[\0\r\n]/.test(value)) fail('invalid-value', `${field} must be a safe relative path.`);
+  if (/^(?:[A-Za-z]:|[\\/])/.test(value) || /[\0\r\n]/.test(value)) fail('invalid-value', `${field} must be a safe relative path.`);
   let depth = 0;
   for (const segment of value.split(/[\\/]+/)) {
     if (!segment || segment === '.') continue;
+    if (segment.includes(':')) fail('invalid-value', `${field} must not contain alternate data streams or drive prefixes.`);
     if (segment === '..') { depth -= 1; if (depth < 0) fail('invalid-value', `${field} must not traverse outside the project.`); }
     else depth += 1;
   }
@@ -69,19 +71,27 @@ export function validateFlowRequest(tool, input, contract) {
   return structuredClone(request);
 }
 
-function validateChecksum(value, field) { nonEmptyString(value, field); if (!CHECKSUM.test(value)) fail('malformed-response', `${field} must be a safe sha256 checksum.`); }
+function validateChecksum(value, field) { nonEmptyString(value, field); if (!CHECKSUM.test(value)) fail('malformed-response', `${field} must be sha256 followed by 64 lowercase hexadecimal characters.`); }
+function exactKeys(value, allowed, field) { for (const key of Object.keys(value)) if (!allowed.includes(key)) fail('malformed-response', `${field}.${key} is not declared by the pinned response envelope.`); }
+function verifyLocalChecksum(file, checksum, localFiles) {
+  const localPath = localFiles?.[file.assetId];
+  if (!localPath) return;
+  let actual;
+  try { actual = `sha256:${createHash('sha256').update(readFileSync(localPath)).digest('hex')}`; } catch { fail('malformed-response', `local file for ${file.assetId} could not be read.`); }
+  if (actual !== checksum) fail('malformed-response', `local file checksum does not match ${file.assetId}.`);
+}
 
-export function validateFlowResponse(tool, input, contract) {
+export function validateFlowResponse(tool, input, contract, { localFiles = {} } = {}) {
   if (!FLOW_TOOLS.has(tool)) fail('unknown-tool', `Unknown Flow MCP tool: ${tool}.`);
   if (!contract?.tools?.[tool]) fail('unknown-tool', `No pinned contract exists for ${tool}.`);
   const response = object(input, `${tool} response`);
   if (response.ok !== true) fail('malformed-response', `${tool} response must have ok=true.`);
-  if (tool === 'flow_status') { if (typeof response.signedIn !== 'boolean' || typeof response.inProject !== 'boolean') fail('malformed-response', 'flow_status response is missing account state.'); finiteNumber(response.credits, 'flow_status.credits'); if (response.credits < 0) fail('malformed-response', 'flow_status.credits must not be negative.'); if (response.project !== undefined) safeId(response.project, 'flow_status.project'); }
-  if (tool === 'flow_generate' || tool === 'flow_wait') { if (!Array.isArray(response.jobs)) fail('malformed-response', `${tool}.jobs must be an array.`); response.jobs.forEach((job) => { object(job, `${tool}.jobs[]`); safeId(job.id, `${tool}.jobs[].id`); nonEmptyString(job.status, `${tool}.jobs[].status`); }); if (tool === 'flow_wait' && typeof response.finished !== 'boolean') fail('malformed-response', 'flow_wait.finished must be boolean.'); }
-  if (tool === 'flow_download') { if (!Array.isArray(response.files)) fail('malformed-response', 'flow_download.files must be an array.'); response.files.forEach((file) => { object(file, 'flow_download.files[]'); safePath(file.path, 'flow_download.files[].path'); safeId(file.assetId, 'flow_download.files[].assetId'); validateChecksum(file.checksum, 'flow_download.files[].checksum'); }); }
-  if (tool === 'flow_assets') { if (!Array.isArray(response.assets)) fail('malformed-response', 'flow_assets.assets must be an array.'); response.assets.forEach((asset) => { object(asset, 'flow_assets.assets[]'); safeId(asset.id, 'flow_assets.assets[].id'); nonEmptyString(asset.title, 'flow_assets.assets[].title'); nonEmptyString(asset.kind, 'flow_assets.assets[].kind'); validateChecksum(asset.checksum, 'flow_assets.assets[].checksum'); if (asset.path !== undefined) safePath(asset.path, 'flow_assets.assets[].path'); }); }
-  if (tool === 'flow_transcribe') { if (!Array.isArray(response.words)) fail('malformed-response', 'flow_transcribe.words must be an array.'); response.words.forEach((word) => { object(word, 'flow_transcribe.words[]'); nonEmptyString(word.text, 'flow_transcribe.words[].text'); finiteNumber(word.start, 'flow_transcribe.words[].start'); if (word.end !== undefined) finiteNumber(word.end, 'flow_transcribe.words[].end'); }); }
-  if (tool === 'flow_voices') { if (typeof response.gemini_ready !== 'boolean' || !Array.isArray(response.voices)) fail('malformed-response', 'flow_voices response is incomplete.'); response.voices.forEach((voice) => { object(voice, 'flow_voices.voices[]'); safeId(voice.id, 'flow_voices.voices[].id'); nonEmptyString(voice.name, 'flow_voices.voices[].name'); }); }
+  if (tool === 'flow_status') { exactKeys(response, ['ok', 'signedIn', 'inProject', 'credits', 'project'], tool); if (typeof response.signedIn !== 'boolean' || typeof response.inProject !== 'boolean') fail('malformed-response', 'flow_status response is missing account state.'); finiteNumber(response.credits, 'flow_status.credits'); if (response.credits < 0) fail('malformed-response', 'flow_status.credits must not be negative.'); if (response.project !== undefined) safeId(response.project, 'flow_status.project'); }
+  if (tool === 'flow_generate' || tool === 'flow_wait') { exactKeys(response, tool === 'flow_wait' ? ['ok', 'finished', 'jobs'] : ['ok', 'jobs'], tool); if (!Array.isArray(response.jobs)) fail('malformed-response', `${tool}.jobs must be an array.`); response.jobs.forEach((job) => { object(job, `${tool}.jobs[]`); exactKeys(job, ['id', 'status'], `${tool}.jobs[]`); safeId(job.id, `${tool}.jobs[].id`); nonEmptyString(job.status, `${tool}.jobs[].status`); }); if (tool === 'flow_wait' && typeof response.finished !== 'boolean') fail('malformed-response', 'flow_wait.finished must be boolean.'); }
+  if (tool === 'flow_download') { exactKeys(response, ['ok', 'files'], tool); if (!Array.isArray(response.files)) fail('malformed-response', 'flow_download.files must be an array.'); response.files.forEach((file) => { object(file, 'flow_download.files[]'); exactKeys(file, ['path', 'assetId', 'checksum'], 'flow_download.files[]'); safePath(file.path, 'flow_download.files[].path'); safeId(file.assetId, 'flow_download.files[].assetId'); validateChecksum(file.checksum, 'flow_download.files[].checksum'); verifyLocalChecksum(file, file.checksum, localFiles); }); }
+  if (tool === 'flow_assets') { exactKeys(response, ['ok', 'assets'], tool); if (!Array.isArray(response.assets)) fail('malformed-response', 'flow_assets.assets must be an array.'); response.assets.forEach((asset) => { object(asset, 'flow_assets.assets[]'); exactKeys(asset, ['id', 'title', 'kind', 'checksum', 'path'], 'flow_assets.assets[]'); safeId(asset.id, 'flow_assets.assets[].id'); nonEmptyString(asset.title, 'flow_assets.assets[].title'); nonEmptyString(asset.kind, 'flow_assets.assets[].kind'); validateChecksum(asset.checksum, 'flow_assets.assets[].checksum'); if (asset.path !== undefined) safePath(asset.path, 'flow_assets.assets[].path'); }); }
+  if (tool === 'flow_transcribe') { exactKeys(response, ['ok', 'words'], tool); if (!Array.isArray(response.words)) fail('malformed-response', 'flow_transcribe.words must be an array.'); response.words.forEach((word) => { object(word, 'flow_transcribe.words[]'); exactKeys(word, ['text', 'start', 'end'], 'flow_transcribe.words[]'); nonEmptyString(word.text, 'flow_transcribe.words[].text'); finiteNumber(word.start, 'flow_transcribe.words[].start'); if (word.end !== undefined) finiteNumber(word.end, 'flow_transcribe.words[].end'); }); }
+  if (tool === 'flow_voices') { exactKeys(response, ['ok', 'gemini_ready', 'voices'], tool); if (typeof response.gemini_ready !== 'boolean' || !Array.isArray(response.voices)) fail('malformed-response', 'flow_voices response is incomplete.'); response.voices.forEach((voice) => { object(voice, 'flow_voices.voices[]'); exactKeys(voice, ['id', 'name'], 'flow_voices.voices[]'); safeId(voice.id, 'flow_voices.voices[].id'); nonEmptyString(voice.name, 'flow_voices.voices[].name'); }); }
   return structuredClone(response);
 }
 
@@ -104,6 +114,7 @@ export function flowQuoteHash(quote) { return hash({ currency: quote.currency, p
 export function preflightFlowGeneration({ status, request, composer, entitlement, quote, approval } = {}) {
   object(status, 'Flow status'); if (status.signedIn !== true) fail('preflight', 'Flow account is not signed in.'); if (status.inProject !== true) fail('preflight', 'Flow project is not active.'); finiteNumber(status.credits, 'Flow status credits');
   validateFlowRequest('flow_generate', request, { tools: { flow_generate: { required: ['project', 'scenes'], optional: ['max_credits', 'acknowledge_cost'] } } });
+  safeId(status.project, 'Flow status project'); if (status.project !== request.project) fail('preflight', 'Flow status project does not match the requested project.');
   if (request.acknowledge_cost !== true) fail('preflight', 'Flow generation requires explicit acknowledge_cost=true.');
   object(composer, 'Flow composer settings'); nonEmptyString(composer.model, 'Flow composer model'); nonEmptyString(composer.aspectRatio, 'Flow composer aspect ratio'); if (!Number.isInteger(composer.variants) || composer.variants < 1) fail('preflight', 'Flow composer variants must be a positive integer.');
   object(entitlement, 'Flow entitlement'); if (entitlement.provider !== 'flow' || entitlement.available !== true) fail('preflight', 'Flow entitlement is unavailable.');
@@ -116,7 +127,7 @@ export function preflightFlowGeneration({ status, request, composer, entitlement
 }
 
 export function prepareFlowRetry({ error, readback, failedShotIds, shotId, consented, previousRetries = [] } = {}) {
-  const normalized = validateFlowError(error); if (!['timeout', 'rate-limit', 'partial-output'].includes(normalized.kind) || normalized.kind === 'pending') fail('retry-blocked', 'Flow retry requires a terminal retryable failure.');
+  const normalized = validateFlowError(error); if (normalized.retryable !== true || !['timeout', 'rate-limit', 'partial-output'].includes(normalized.kind)) fail('retry-blocked', 'Flow retry requires a terminal retryable failure.');
   if (!readback?.stateChecked || !readback.assetsChecked || !['failed', 'partial'].includes(readback.jobStatus)) fail('retry-blocked', 'Flow retry requires read-back state and assets.');
   if (consented !== true || !Array.isArray(failedShotIds) || !failedShotIds.includes(shotId)) fail('retry-blocked', 'Flow retry requires explicit consent for a failed shot ID.');
   if (previousRetries.includes(shotId)) fail('retry-blocked', 'Flow retry is already recorded for this shot ID.');
@@ -124,10 +135,11 @@ export function prepareFlowRetry({ error, readback, failedShotIds, shotId, conse
 }
 
 function validateGeminiInputs({ model, voice, transcript, entitlement, billingApproved }) {
-  nonEmptyString(model, 'Gemini TTS model'); if (!GEMINI_TTS_MODELS.has(model)) fail('consent', 'Gemini TTS model is not approved.'); nonEmptyString(voice, 'Gemini TTS voice'); nonEmptyString(transcript, 'Gemini TTS transcript'); object(entitlement, 'Gemini TTS entitlement'); if (entitlement.provider !== 'gemini-tts' || entitlement.available !== true) fail('consent', 'Gemini TTS entitlement is unavailable.'); if (billingApproved !== true) fail('consent', 'Gemini TTS billing approval is required.');
+  nonEmptyString(model, 'Gemini TTS model'); if (!GEMINI_TTS_MODELS.has(model)) fail('consent', 'Gemini TTS model is not approved.'); nonEmptyString(voice, 'Gemini TTS voice'); nonEmptyString(transcript, 'Gemini TTS transcript'); object(entitlement, 'Gemini TTS entitlement'); if (entitlement.provider !== 'gemini-tts' || entitlement.available !== true) fail('consent', 'Gemini TTS entitlement is unavailable.'); for (const field of ['accountId', 'source', 'billingAccountId', 'billingProfile']) nonEmptyString(entitlement[field], `Gemini TTS entitlement ${field}`); if (billingApproved !== true) fail('consent', 'Gemini TTS billing approval is required.');
 }
-export function createGeminiTtsConsent({ model, voice, transcript, entitlement, billingApproved } = {}) { validateGeminiInputs({ model, voice, transcript, entitlement, billingApproved }); return { schemaVersion: 1, provider: 'gemini-tts', model, voice, transcript, transcriptHash: hash(transcript), entitlement: structuredClone(entitlement), billingApproved: true, consented: false, network: 'not-called' }; }
-export function approveGeminiTtsConsent(state, current) { object(state, 'Gemini TTS consent state'); validateGeminiInputs(current); if (state.model !== current.model || state.voice !== current.voice || state.transcriptHash !== hash(current.transcript) || state.entitlement.provider !== current.entitlement.provider || state.entitlement.available !== current.entitlement.available) fail('consent', 'Gemini TTS consent must be renewed after a model, voice, transcript, or entitlement change.'); return { ...structuredClone(state), model: current.model, voice: current.voice, transcript: current.transcript, transcriptHash: hash(current.transcript), consented: true, billingApproved: true, network: 'not-called' }; }
+function entitlementHash(entitlement) { return hash({ provider: entitlement.provider, accountId: entitlement.accountId, source: entitlement.source, available: entitlement.available, billingAccountId: entitlement.billingAccountId, billingProfile: entitlement.billingProfile }); }
+export function createGeminiTtsConsent({ model, voice, transcript, entitlement, billingApproved } = {}) { validateGeminiInputs({ model, voice, transcript, entitlement, billingApproved }); return { schemaVersion: 1, provider: 'gemini-tts', model, voice, transcript, transcriptHash: hash(transcript), entitlement: structuredClone(entitlement), entitlementHash: entitlementHash(entitlement), billingApproved: true, consented: false, network: 'not-called' }; }
+export function approveGeminiTtsConsent(state, current) { object(state, 'Gemini TTS consent state'); validateGeminiInputs(current); if (state.model !== current.model || state.voice !== current.voice || state.transcriptHash !== hash(current.transcript) || state.entitlementHash !== entitlementHash(current.entitlement)) fail('consent', 'Gemini TTS consent must be renewed after a model, voice, transcript, entitlement, or billing identity change.'); return { ...structuredClone(state), model: current.model, voice: current.voice, transcript: current.transcript, transcriptHash: hash(current.transcript), entitlement: structuredClone(current.entitlement), entitlementHash: entitlementHash(current.entitlement), consented: true, billingApproved: true, network: 'not-called' }; }
 
 function redactString(value) { return SECRET_VALUE.test(value) ? '[REDACTED]' : value; }
 export function redactSecrets(value, key = '') { if (Array.isArray(value)) return value.map((item) => redactSecrets(item)); if (typeof value === 'string') return SECRET_KEY.test(key) || SECRET_VALUE.test(value) ? '[REDACTED]' : redactString(value); if (!value || typeof value !== 'object') return value; return Object.fromEntries(Object.entries(value).map(([name, item]) => [name, SECRET_KEY.test(name) ? '[REDACTED]' : redactSecrets(item, name)])); }

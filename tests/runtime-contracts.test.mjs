@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
@@ -41,6 +43,7 @@ test('validates every pinned Flow request schema and every fixture response thro
   for (const tool of Object.keys(contract.tools)) {
     assert.deepEqual(validateFlowRequest(tool, flowRequestSamples[tool], contract), flowRequestSamples[tool]);
     assert.equal(validateFlowResponse(tool, responses.success[tool], contract).ok, true);
+    expectCode(() => validateFlowResponse(tool, { ...responses.success[tool], undeclared: true }, contract), 'malformed-response');
   }
   expectCode(() => validateFlowRequest('flow_status', { detailed: 'yes' }, contract), 'invalid-type');
   expectCode(() => validateFlowRequest('flow_wait', { job_ids: ['../job'], timeout_seconds: 10 }, contract), 'invalid-value');
@@ -52,16 +55,33 @@ test('rejects malformed optional fields, unsafe IDs, traversal paths, and malfor
   const contract = await fixture('contract.json');
   expectCode(() => validateFlowRequest('flow_wait', { job_ids: 'job-synthetic-001' }, contract), ['invalid-type', 'invalid-value']);
   expectCode(() => validateFlowRequest('flow_wait', { job_ids: [] }, contract), 'invalid-value');
-  expectCode(() => validateFlowRequest('flow_transcribe', { video: '/absolute.wav' }, contract), 'invalid-value');
+  for (const video of ['/absolute.wav', '\\\\server\\share.wav', 'C:escape.wav', 'C:\\absolute.wav', 'foo.txt:secret', '../escape.wav']) {
+    expectCode(() => validateFlowRequest('flow_transcribe', { video }, contract), 'invalid-value');
+  }
   expectCode(() => validateFlowRequest('flow_assets', { kind: 'unknown' }, contract), 'invalid-value');
   expectCode(() => validateFlowRequest('flow_status', { unexpected: true }, contract), 'invalid-value');
   expectCode(() => validateFlowResponse('flow_download', { ok: true, files: [{ path: '../escape.jpeg', assetId: 'asset-1', checksum: 'sha256:abc' }] }, contract), ['malformed-response', 'invalid-value']);
   expectCode(() => validateFlowResponse('flow_assets', { ok: true, assets: [{ id: 'asset-1', title: 'scene', kind: 'image' }] }, contract), ['malformed-response', 'invalid-type']);
   expectCode(() => validateFlowResponse('flow_voices', { ok: true, gemini_ready: true, voices: [{}] }, contract), ['malformed-response', 'invalid-type']);
+  expectCode(() => validateFlowResponse('flow_download', { ok: true, files: [{ path: 'images/file.jpeg', assetId: 'asset-1', checksum: 'sha256:placeholder' }] }, contract), 'malformed-response');
+});
+
+test('verifies a supplied local download file against its strict lowercase sha256 checksum', async () => {
+  const contract = await fixture('contract.json');
+  const response = { ok: true, files: [{ path: 'images/scene-01.jpeg', assetId: 'asset-synthetic-001', checksum: 'sha256:94c31d3a1da04981a5ee280608e76a3cee2780ad7bb21ac34ef50fb8f78adb48' }] };
+  const root = await mkdtemp(path.join(os.tmpdir(), 'flow-contract-'));
+  const localFile = path.join(root, 'scene-01.jpeg');
+  try {
+    await writeFile(localFile, 'offline fixture bytes');
+    assert.doesNotThrow(() => validateFlowResponse('flow_download', response, contract, { localFiles: { 'asset-synthetic-001': localFile } }));
+    expectCode(() => validateFlowResponse('flow_download', { ...response, files: [{ ...response.files[0], checksum: 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' }] }, contract, { localFiles: { 'asset-synthetic-001': localFile } }), 'malformed-response');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('requires finite, exact, consented Flow quotes and binds approval to the complete request batch', () => {
-  const status = { ok: true, signedIn: true, inProject: true, credits: 50 };
+  const status = { ok: true, signedIn: true, inProject: true, credits: 50, project: 'synthetic-project' };
   const request = { project: 'synthetic-project', scenes: [{ id: 'scene-01', prompt: 'A quiet room.', references: ['references/rover.png'] }], max_credits: 4, acknowledge_cost: true };
   const composer = { model: 'Nano Banana 2.1', aspectRatio: '16:9', variants: 1 };
   const entitlement = { provider: 'flow', available: true, source: 'account' };
@@ -77,6 +97,7 @@ test('requires finite, exact, consented Flow quotes and binds approval to the co
     { ...quote, total: 3 },
   ]) expectCode(() => preflightFlowGeneration({ status, request, composer, entitlement, quote: badQuote, approval: validApproval }), ['preflight', 'invalid-type']);
   expectCode(() => preflightFlowGeneration({ status, request: { ...request, acknowledge_cost: false }, composer, entitlement, quote, approval: validApproval }), 'preflight');
+  expectCode(() => preflightFlowGeneration({ status: { ...status, project: 'other-project' }, request, composer, entitlement, quote, approval: validApproval }), 'preflight');
   expectCode(() => preflightFlowGeneration({ status, request, composer, entitlement, quote, approval: { ...validApproval, approved: false } }), 'preflight');
   expectCode(() => preflightFlowGeneration({ status, request: { ...request, scenes: [{ ...request.scenes[0], id: 'scene-02' }] }, composer, entitlement, quote, approval: validApproval }), 'preflight');
   expectCode(() => preflightFlowGeneration({ status, request: { ...request, scenes: [{ ...request.scenes[0], references: ['references/other.png'] }] }, composer, entitlement, quote, approval: validApproval }), 'preflight');
@@ -94,10 +115,13 @@ test('requires read-back before timeout or partial-output retry and permits only
   expectCode(() => prepareFlowRetry({ ...base, consented: false }), 'retry-blocked');
   expectCode(() => prepareFlowRetry({ ...base, shotId: 'scene-02' }), 'retry-blocked');
   expectCode(() => prepareFlowRetry({ ...base, previousRetries: ['scene-01'] }), 'retry-blocked');
+  expectCode(() => prepareFlowRetry({ ...base, error: { kind: 'timeout', retryable: false, safeMessage: 'not retryable' } }), 'retry-blocked');
+  expectCode(() => prepareFlowRetry({ ...base, error: { kind: 'rate-limit', safeMessage: 'retryability omitted' } }), ['retry-blocked', 'invalid-error']);
+  expectCode(() => prepareFlowRetry({ ...base, error: { kind: 'partial-output', retryable: false, safeMessage: 'not retryable' } }), 'retry-blocked');
 });
 
 test('requires Gemini entitlement, billing approval, exact transcript hash, and fresh consent after changes', () => {
-  const entitlement = { provider: 'gemini-tts', available: true, source: 'account' };
+  const entitlement = { provider: 'gemini-tts', accountId: 'account-synthetic', source: 'account', available: true, billingAccountId: 'billing-synthetic', billingProfile: 'profile-synthetic' };
   const input = { model: 'gemini-3.8-flash-tts', voice: 'Charon', transcript: 'Exact approved words.' };
   const pending = createGeminiTtsConsent({ ...input, entitlement, billingApproved: true });
   expectCode(() => approveGeminiTtsConsent(pending, { ...input, entitlement, billingApproved: false }), 'consent');
@@ -107,6 +131,9 @@ test('requires Gemini entitlement, billing approval, exact transcript hash, and 
   assert.doesNotThrow(() => approveGeminiTtsConsent(consent, { ...input, entitlement, billingApproved: true }));
   expectCode(() => approveGeminiTtsConsent(consent, { ...input, transcript: 'Changed words.', entitlement, billingApproved: true }), 'consent');
   expectCode(() => approveGeminiTtsConsent(consent, { ...input, voice: 'ChangedVoice', entitlement, billingApproved: true }), 'consent');
+  expectCode(() => approveGeminiTtsConsent(consent, { ...input, entitlement: { ...entitlement, accountId: 'other-account' }, billingApproved: true }), 'consent');
+  expectCode(() => approveGeminiTtsConsent(consent, { ...input, entitlement: { ...entitlement, source: 'other-source' }, billingApproved: true }), 'consent');
+  expectCode(() => approveGeminiTtsConsent(consent, { ...input, entitlement: { ...entitlement, billingAccountId: 'other-billing' }, billingApproved: true }), 'consent');
   expectCode(() => createGeminiTtsConsent({ ...input, entitlement: { ...entitlement, available: false }, billingApproved: true }), 'consent');
 });
 
