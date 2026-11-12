@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { importEpisodeManifest } from '../scripts/episode-manifest.mjs';
 import {
+  LEGACY_PRODUCTION_STATUSES,
   PRODUCTION_STATUSES,
   createProductionState,
   normalizeIdempotencyKey,
@@ -100,7 +101,7 @@ test('normalizes persisted approval without proof to needs-reconciliation', asyn
     const file = path.join(root, 'state.json');
     const state = createProductionState('episode-approval-01');
     state.stages.research = { status: 'approved' };
-    state.completedStages.research = { status: 'approved' };
+    state.completedStages.research = { status: 'invalidated' };
     await writeFile(file, JSON.stringify(state));
     const loaded = await loadProductionState(file, { recover: false });
     assert.equal(loaded.stages.research.status, 'needs-reconciliation');
@@ -160,10 +161,21 @@ test('fails closed when dual projections disagree on a stage status', async () =
 });
 
 test('does not project unsafe statuses as legacy complete', () => {
+  assert.deepEqual(LEGACY_PRODUCTION_STATUSES, ['pending', 'complete', 'invalidated', 'failed', 'blocked', 'running', 'skipped']);
   for (const status of ['rejected', 'stale', 'needs-reconciliation']) {
     const state = recordProductionAttempt(createProductionState(`unsafe-projection-${status}`), 'research', { idempotencyKey: `${status}-1`, status });
-    assert.equal(state.completedStages.research.status, status);
+    assert.equal(state.completedStages.research.status, 'invalidated');
+    assert.equal(LEGACY_PRODUCTION_STATUSES.includes(state.completedStages.research.status), true);
   }
+});
+
+test('projects only proven approvals as legacy complete', () => {
+  const state = recordProductionAttempt(createProductionState('approved-projection-01'), 'research', {
+    idempotencyKey: 'approved-projection', status: 'approved', dependencyHash: 'sha256:approved',
+    approvalBinding: { approvalId: 'human-1', actor: 'reviewer', dependencyHash: 'sha256:approved', approvedAt: '2026-11-12T00:00:00.000Z' },
+  });
+  assert.equal(state.completedStages.research.status, 'complete');
+  assert.equal(LEGACY_PRODUCTION_STATUSES.includes(state.completedStages.research.status), true);
 });
 
 test('invalidates only affected completed records and preserves active failure semantics', () => {

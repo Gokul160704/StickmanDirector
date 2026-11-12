@@ -44,9 +44,13 @@ that triggered reconciliation. A stage marked reviewed, approved, rejected, wait
 human input, or needing reconciliation cannot advance through the ordinary sequential
 transition, preventing an implicit approval downgrade.
 
-The legacy projection preserves failed, skipped, rejected, stale, and
-needs-reconciliation statuses explicitly; it never represents them as legacy `complete`.
-Conflicting status-bearing projections fail closed.
+The legacy `completedStages` projection emits only the pre-existing enum `pending`,
+`complete`, `invalidated`, `failed`, `blocked`, `running`, or `skipped`. Draft, waiting,
+and queued map to `pending`; generated, downloaded, and reviewed map to `complete` only
+in that compatibility projection. An approved stage maps to `complete` only with its
+canonical approval proof. Rejected, stale, and needs-reconciliation map to
+`invalidated`, never `complete`; failed, blocked, running, and skipped retain their
+legacy meanings. Conflicting status-bearing projections fail closed.
 
 `requestSafeShotRetry` only queues a retry for an explicitly consented failed or
 needs-reconciliation shot with receipt and asset read-back metadata. It performs no

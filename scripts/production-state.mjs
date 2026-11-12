@@ -4,7 +4,8 @@ import path from 'node:path';
 
 export const PRODUCTION_STAGES = ['research', 'script', 'continuity', 'storyboard', 'references', 'images', 'audio', 'captions', 'rendering', 'QA'];
 export const PRODUCTION_STATUSES = ['draft', 'waiting-for-human', 'queued', 'running', 'generated', 'downloaded', 'reviewed', 'approved', 'rejected', 'failed', 'skipped', 'stale', 'needs-reconciliation'];
-const LEGACY_STATUSES = ['pending', 'complete', 'invalidated', 'failed', 'blocked', 'running', 'skipped'];
+export const LEGACY_PRODUCTION_STATUSES = ['pending', 'complete', 'invalidated', 'failed', 'blocked', 'running', 'skipped'];
+const LEGACY_STATUSES = LEGACY_PRODUCTION_STATUSES;
 const SECRET_KEY = /(?:secret|token|password|passwd|api[-_]?key|authorization|cookie|credential|private[-_]?key|access[-_]?key|refresh[-_]?token)/i;
 const SECRET_VALUE = /(?:bearer\s+|basic\s+|(?:ghp|github_pat|sk|AIza|ya29)[-_][A-Za-z0-9._~-]+|AKIA[0-9A-Z]{16}|(?:api[-_]?key|secret|token)\s*[:=]\s*|-----BEGIN [A-Z ]+ KEY-----)[^\s]*/gi;
 const LEGACY_TO_CANONICAL = { pending: 'draft', complete: 'generated', invalidated: 'needs-reconciliation', failed: 'failed', blocked: 'waiting-for-human', running: 'running', skipped: 'skipped' };
@@ -44,7 +45,10 @@ function legacyStatus(entry) {
   if (['draft', 'queued', 'running'].includes(status)) return 'pending';
   if (status === 'waiting-for-human') return entry.legacyStatus === 'blocked' ? 'blocked' : 'pending';
   if (['generated', 'downloaded', 'reviewed'].includes(status)) return 'complete';
-  return status;
+  if (status === 'approved') return validApprovalBinding(entry.approvalBinding, entry.dependencyHash) ? 'complete' : 'invalidated';
+  if (['rejected', 'stale', 'needs-reconciliation'].includes(status)) return 'invalidated';
+  if (['failed', 'skipped'].includes(status)) return status;
+  return 'invalidated';
 }
 
 function legacyStagesFromCanonical(stages) {
