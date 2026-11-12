@@ -62,10 +62,13 @@ test('records attempts idempotently and keeps only canonical status values', () 
   assert.deepEqual(PRODUCTION_STATUSES, ['draft', 'waiting-for-human', 'queued', 'running', 'generated', 'downloaded', 'reviewed', 'approved', 'rejected', 'failed', 'skipped', 'stale', 'needs-reconciliation']);
   const first = recordProductionAttempt(state, 'research', {
     idempotencyKey: ' Research  1 ', status: 'approved', dependencyHash: 'sha256:abc', artifact: 'research/notes.md',
+    approvalBinding: { approvalId: 'human-1', actor: 'reviewer', approvedAt: '2026-11-12T00:00:00.000Z' },
     receipt: { provider: 'offline', apiKey: 'do-not-store' },
   });
   const second = recordProductionAttempt(first, 'research', {
     idempotencyKey: ' research  1 ', status: 'approved', dependencyHash: 'sha256:abc', artifact: 'research/notes.md',
+    approvalBinding: { approvalId: 'human-1', actor: 'reviewer', approvedAt: '2026-11-12T00:00:00.000Z' },
+    receipt: { provider: 'offline', apiKey: 'do-not-store' },
   });
   assert.deepEqual(second, first);
   assert.equal(normalizeIdempotencyKey(' Research  1 '), 'research 1');
@@ -73,6 +76,30 @@ test('records attempts idempotently and keeps only canonical status values', () 
   assert.equal(first.attempts.length, 1);
   assert.equal(first.attempts[0].receipt.apiKey, '[REDACTED]');
   assert.equal(JSON.stringify(first).includes('do-not-store'), false);
+});
+
+test('requires complete dependency and approval proof for approved attempts', () => {
+  const state = createProductionState('episode-01');
+  assert.throws(() => recordProductionAttempt(state, 'research', { idempotencyKey: 'approved-1', status: 'approved' }), /dependencyHash|approvalBinding/i);
+  assert.throws(() => recordProductionAttempt(state, 'research', { idempotencyKey: 'approved-2', status: 'approved', dependencyHash: 'sha256:abc', approvalBinding: { approvalId: 'human-1', actor: 'reviewer' } }), /approvedAt/i);
+  const accepted = recordProductionAttempt(state, 'research', {
+    idempotencyKey: 'approved-3', status: 'approved', dependencyHash: 'sha256:abc',
+    approvalBinding: { approvalId: 'human-1', actor: 'reviewer', approvedAt: '2026-11-12T00:00:00.000Z' },
+  });
+  assert.equal(accepted.stages.research.status, 'approved');
+});
+
+test('normalizes persisted approval without proof to needs-reconciliation', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'stickman-approval-proof-'));
+  try {
+    const file = path.join(root, 'state.json');
+    const state = createProductionState('episode-approval-01');
+    state.stages.research = { status: 'approved' };
+    await writeFile(file, JSON.stringify(state));
+    const loaded = await loadProductionState(file, { recover: false });
+    assert.equal(loaded.stages.research.status, 'needs-reconciliation');
+    assert.equal(loaded.stages.research.approvalStatus, 'approved');
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('preserves legacy stage data and unknown fields through additive migration', async () => {
@@ -103,9 +130,20 @@ test('preserves legacy stage data and unknown fields through additive migration'
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test('fails closed when durable projections contain legacy-only unknown stage data', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'stickman-dual-projection-'));
+  try {
+    const file = path.join(root, 'state.json');
+    const state = createProductionState('dual-01');
+    state.completedStages.research.legacyOnly = 'do-not-drop';
+    await writeFile(file, JSON.stringify(state));
+    await assert.rejects(() => loadProductionState(file, { recover: false }), /legacy.*unknown|projection|conflict/i);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('invalidates only affected completed records and preserves active failure semantics', () => {
   let state = recordProductionAttempt(createProductionState('episode-01'), 'research', {
-    idempotencyKey: 'research-1', status: 'approved', dependencyHash: 'sha256:old', approvalBinding: { approvalId: 'human-1', dependencyHash: 'sha256:old' },
+    idempotencyKey: 'research-1', status: 'approved', dependencyHash: 'sha256:old', approvalBinding: { approvalId: 'human-1', actor: 'reviewer', approvedAt: '2026-11-12T00:00:00.000Z', dependencyHash: 'sha256:old' },
   });
   state = recordProductionAttempt(state, 'script', {
     idempotencyKey: 'script-1', status: 'generated', dependencyHash: 'sha256:script',
@@ -128,6 +166,22 @@ test('invalidates only affected completed records and preserves active failure s
   const reapproved = reapproveProductionStage(reconciled, 'research', { approvalId: 'human-2', dependencyHash: 'sha256:new' });
   assert.equal(reapproved.stages.research.status, 'approved');
   assert.equal(reapproved.approvalBindings.research.dependencyHash, 'sha256:new');
+  assert.throws(() => reapproveProductionStage(reconciled, 'research', { approvalId: 'human-3', dependencyHash: 'sha256:wrong' }), /currentHash|dependencyHash/i);
+});
+
+test('rejects replay when material receipt, error, or arbitrary metadata changes', () => {
+  const state = createProductionState('episode-01');
+  const first = recordProductionAttempt(state, 'research', {
+    idempotencyKey: 'material-1', status: 'failed', dependencyHash: 'sha256:abc', error: 'first',
+    receipt: { receiptId: 'r1' }, receiptReadback: { status: 'failed' }, assetReadback: { status: 'absent' }, custom: { version: 1 },
+  });
+  for (const change of [
+    { error: 'second' },
+    { receipt: { receiptId: 'r2' } },
+    { receiptReadback: { status: 'complete' } },
+    { assetReadback: { status: 'present' } },
+    { custom: { version: 2 } },
+  ]) assert.throws(() => recordProductionAttempt(first, 'research', { idempotencyKey: ' MATERIAL-1 ', status: 'failed', dependencyHash: 'sha256:abc', ...change }), /replay/i);
 });
 
 test('gates retries to consented failed or reconciled shots with read-back metadata', () => {
@@ -146,10 +200,14 @@ test('gates retries to consented failed or reconciled shots with read-back metad
 
 test('redacts nested receipt secret values and reports the primary recovery error deterministically', async () => {
   const state = recordProductionAttempt(createProductionState('episode-01'), 'research', {
-    idempotencyKey: 'receipt-1', status: 'failed', receipt: { nested: { message: 'Bearer super-secret-token' }, apiKey: 'AIza-secret' },
+    idempotencyKey: 'receipt-1', status: 'failed', receipt: { nested: { message: 'Bearer super-secret-token' }, apiKey: 'AIza-secret', notes: 'ghp_1234567890 github_pat_ABC AKIAIOSFODNN7EXAMPLE sk-proj-123' },
   });
   assert.equal(JSON.stringify(state).includes('super-secret-token'), false);
   assert.equal(JSON.stringify(state).includes('AIza-secret'), false);
+  assert.equal(JSON.stringify(state).includes('ghp_1234567890'), false);
+  assert.equal(JSON.stringify(state).includes('github_pat_ABC'), false);
+  assert.equal(JSON.stringify(state).includes('AKIAIOSFODNN7EXAMPLE'), false);
+  assert.equal(JSON.stringify(state).includes('sk-proj-123'), false);
   const root = await mkdtemp(path.join(os.tmpdir(), 'stickman-recovery-'));
   try {
     const file = path.join(root, 'state.json');

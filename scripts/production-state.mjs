@@ -6,7 +6,7 @@ export const PRODUCTION_STAGES = ['research', 'script', 'continuity', 'storyboar
 export const PRODUCTION_STATUSES = ['draft', 'waiting-for-human', 'queued', 'running', 'generated', 'downloaded', 'reviewed', 'approved', 'rejected', 'failed', 'skipped', 'stale', 'needs-reconciliation'];
 const LEGACY_STATUSES = ['pending', 'complete', 'invalidated', 'failed', 'blocked', 'running', 'skipped'];
 const SECRET_KEY = /(?:secret|token|password|passwd|api[-_]?key|authorization|cookie|credential|private[-_]?key|access[-_]?key|refresh[-_]?token)/i;
-const SECRET_VALUE = /(?:bearer\s+|basic\s+|(?:sk|AIza|ya29)[-_][A-Za-z0-9._~-]+|(?:api[-_]?key|secret|token)\s*[:=]\s*|-----BEGIN [A-Z ]+ KEY-----)[^\s]*/gi;
+const SECRET_VALUE = /(?:bearer\s+|basic\s+|(?:ghp|github_pat|sk|AIza|ya29)[-_][A-Za-z0-9._~-]+|AKIA[0-9A-Z]{16}|(?:api[-_]?key|secret|token)\s*[:=]\s*|-----BEGIN [A-Z ]+ KEY-----)[^\s]*/gi;
 const LEGACY_TO_CANONICAL = { pending: 'draft', complete: 'generated', invalidated: 'needs-reconciliation', failed: 'failed', blocked: 'waiting-for-human', running: 'running', skipped: 'skipped' };
 
 function assertStage(stage) { if (!PRODUCTION_STAGES.includes(stage)) throw new Error(`Unknown production stage: ${stage}`); }
@@ -47,6 +47,30 @@ function legacyStagesFromCanonical(stages) {
   return Object.fromEntries(PRODUCTION_STAGES.map((stage) => [stage, { ...stages[stage], status: legacyStatus(stages[stage].status) }]));
 }
 
+function validApprovalBinding(binding) {
+  return Boolean(binding && typeof binding === 'object' && !Array.isArray(binding)
+    && typeof binding.approvalId === 'string' && binding.approvalId.trim()
+    && (typeof binding.actor === 'string' && binding.actor.trim() || typeof binding.source === 'string' && binding.source.trim())
+    && typeof binding.approvedAt === 'string' && binding.approvedAt.trim());
+}
+
+function assertApprovalProof(hash, binding) {
+  if (typeof hash !== 'string' || !hash.trim()) throw new Error('Approved production records require an exact dependencyHash.');
+  if (!validApprovalBinding(binding)) throw new Error('Approved production records require approvalBinding.approvalId, actor/source, and approvedAt.');
+}
+
+function assertProjectionCompatibility(canonical, legacy) {
+  for (const stage of PRODUCTION_STAGES) {
+    const left = canonical[stage] ?? {}; const right = legacy[stage] ?? {};
+    const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+    keys.delete('status'); keys.delete('legacyStatus');
+    for (const key of keys) {
+      if (!(key in left) || !(key in right)) throw new Error(`Invalid production state: legacy/canonical projection conflict at ${stage}.${key}; refusing silent loss.`);
+      if (JSON.stringify(left[key]) !== JSON.stringify(right[key])) throw new Error(`Invalid production state: legacy/canonical projection conflict at ${stage}.${key}.`);
+    }
+  }
+}
+
 function normalizeStageEntry(entry, { legacy = false } = {}) {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error('Invalid production state: each stage entry must be an object.');
   const safe = sanitize(entry);
@@ -71,8 +95,10 @@ function normalizeState(raw) {
   if (hasCanonical && (!raw.stages || typeof raw.stages !== 'object' || Array.isArray(raw.stages))) throw new Error('Invalid production state: stages must be an object.');
   if (hasLegacy && (!raw.completedStages || typeof raw.completedStages !== 'object' || Array.isArray(raw.completedStages))) throw new Error('Invalid production state: completedStages must be an object.');
   if (hasCanonical && hasLegacy && !isDurable) throw new Error('Invalid production state: conflicting canonical and legacy stage data; refusing silent migration.');
+  if (hasCanonical && hasLegacy) assertProjectionCompatibility(raw.stages, raw.completedStages);
   const source = hasCanonical ? raw.stages : raw.completedStages;
   const stages = Object.fromEntries(PRODUCTION_STAGES.map((stage) => [stage, normalizeStageEntry(source[stage] ?? {}, { legacy: !hasCanonical })]));
+  for (const stage of PRODUCTION_STAGES) if (stages[stage].status === 'approved' && (!stages[stage].dependencyHash || !validApprovalBinding(stages[stage].approvalBinding))) stages[stage] = { ...stages[stage], status: 'needs-reconciliation', approvalStatus: 'approved', invalidatedReason: 'approval-binding-missing' };
   const attempts = raw.attempts === undefined ? [] : raw.attempts;
   if (!Array.isArray(attempts)) throw new Error('Invalid production state: attempts must be an array.');
   const safeAttempts = attempts.map((attempt) => {
@@ -80,6 +106,7 @@ function normalizeState(raw) {
     const safe = sanitize(attempt);
     assertStage(safe.stage);
     assertStatus(safe.status);
+    if (safe.status === 'approved' && (!safe.dependencyHash || !validApprovalBinding(safe.approvalBinding))) safe.status = 'needs-reconciliation';
     if (typeof safe.idempotencyKey !== 'string') throw new Error('Invalid production state: attempt idempotencyKey is required.');
     return { ...safe, idempotencyKey: normalizeIdempotencyKey(safe.idempotencyKey) };
   });
@@ -114,7 +141,9 @@ export function recordProductionAttempt(state, stage, options = {}) {
   assertStage(stage); const { idempotencyKey, status: requestedStatus = 'queued', dependencyHash: hash, artifact, error, shotId, receiptReadback, assetReadback, approvalBinding, ...metadata } = options;
   const status = requestedStatus === 'blocked' ? 'waiting-for-human' : requestedStatus;
   assertStatus(status); const normalizedKey = normalizeIdempotencyKey(idempotencyKey); const next = normalizeState(clone(state));
-  const replayFingerprint = dependencyHash({ stage, idempotencyKey: normalizedKey, status, hash, artifact, shotId, approvalBinding });
+  if (status === 'approved') assertApprovalProof(hash, approvalBinding);
+  const sanitizedMaterial = sanitize({ stage, idempotencyKey: normalizedKey, status, dependencyHash: hash, artifact, error, shotId, receiptReadback, assetReadback, approvalBinding, metadata });
+  const replayFingerprint = dependencyHash(sanitizedMaterial);
   const existing = next.attempts.find((attempt) => attempt.stage === stage && attempt.idempotencyKey === normalizedKey);
   if (existing) {
     if (existing.replayFingerprint !== replayFingerprint) throw new Error('Idempotency key replay does not match the original attempt.');
@@ -148,10 +177,11 @@ export function reconcileProductionState(state, dependencies = {}) {
   next.completedStages = legacyStagesFromCanonical(next.stages); next.updatedAt = now(); return next;
 }
 
-export function reapproveProductionStage(state, stage, { approvalId, dependencyHash: hash, actor = 'human' } = {}) {
+export function reapproveProductionStage(state, stage, { approvalId, dependencyHash: hash, actor = 'human', source } = {}) {
   assertStage(stage); if (!approvalId || !hash) throw new Error('Human re-approval requires approvalId and dependencyHash.');
   const next = normalizeState(clone(state)); if (next.stages[stage].status !== 'needs-reconciliation') throw new Error(`Stage ${stage} does not require reconciliation.`);
-  const binding = { approvalId, dependencyHash: hash, actor, approvedAt: now() };
+  if (next.stages[stage].dependencyBinding?.currentHash !== hash) throw new Error(`Human re-approval dependencyHash must match the currentHash that triggered reconciliation.`);
+  const binding = { approvalId, dependencyHash: hash, ...(source ? { source } : {}), actor, approvedAt: now() };
   next.stages[stage] = { ...next.stages[stage], status: 'approved', dependencyHash: hash, approvalBinding: binding };
   next.approvalBindings = { ...next.approvalBindings, [stage]: binding }; next.actions.push({ type: 'human-reapproved', stage, approval: binding });
   next.completedStages = legacyStagesFromCanonical(next.stages); next.updatedAt = now(); return next;
