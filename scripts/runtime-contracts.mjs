@@ -6,7 +6,7 @@ const GEMINI_TTS_MODELS = new Set(['gemini-3.8-flash-tts', 'gemini-3.8-flash-lit
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const CHECKSUM = /^sha256:[a-f0-9]{64}$/;
 const SECRET_KEY = /api[-_]?key|authorization|cookie|access[-_]?token|secret|password|credential|token/i;
-const SECRET_VALUE = /bearer\s+\S+|(?:sk|AIza|gh[pousr]|xox[baprs]|ya29)[-_][A-Za-z0-9._-]+|-----BEGIN[^\n]+-----[\s\S]*?-----END[^\n]+-----/i;
+const SECRET_VALUE = /bearer\s+\S+|AIzaSy[A-Za-z0-9_-]+|ya29\.[A-Za-z0-9._-]+|(?:sk|gh[pousr]|xox[baprs])[-_][A-Za-z0-9._-]+|-----BEGIN[^\n]+-----[\s\S]*?-----END[^\n]+-----/i;
 
 export class ContractValidationError extends Error {
   constructor(code, message) {
@@ -52,7 +52,7 @@ export function validateFlowRequest(tool, input, contract) {
     safeId(request.project, 'flow_generate.project');
     if (!Array.isArray(request.scenes) || request.scenes.length === 0) fail('invalid-type', 'flow_generate.scenes must be a non-empty array.');
     request.scenes.forEach((scene, index) => {
-      object(scene, `flow_generate.scenes[${index}]`); safeId(scene.id, `flow_generate.scenes[${index}].id`); nonEmptyString(scene.prompt, `flow_generate.scenes[${index}].prompt`);
+      object(scene, `flow_generate.scenes[${index}]`); exactKeys(scene, ['id', 'prompt', 'references'], `flow_generate.scenes[${index}]`); safeId(scene.id, `flow_generate.scenes[${index}].id`); nonEmptyString(scene.prompt, `flow_generate.scenes[${index}].prompt`);
       if (scene.references !== undefined) { if (!Array.isArray(scene.references)) fail('invalid-type', `flow_generate.scenes[${index}].references must be an array.`); scene.references.forEach((path, refIndex) => safePath(path, `flow_generate.scenes[${index}].references[${refIndex}]`)); }
     });
     if (request.max_credits !== undefined) { finiteNumber(request.max_credits, 'flow_generate.max_credits'); if (request.max_credits < 0) fail('invalid-value', 'flow_generate.max_credits must not be negative.'); }
@@ -86,7 +86,7 @@ export function validateFlowResponse(tool, input, contract, { localFiles = {} } 
   if (!contract?.tools?.[tool]) fail('unknown-tool', `No pinned contract exists for ${tool}.`);
   const response = object(input, `${tool} response`);
   if (response.ok !== true) fail('malformed-response', `${tool} response must have ok=true.`);
-  if (tool === 'flow_status') { exactKeys(response, ['ok', 'signedIn', 'inProject', 'credits', 'project'], tool); if (typeof response.signedIn !== 'boolean' || typeof response.inProject !== 'boolean') fail('malformed-response', 'flow_status response is missing account state.'); finiteNumber(response.credits, 'flow_status.credits'); if (response.credits < 0) fail('malformed-response', 'flow_status.credits must not be negative.'); if (response.project !== undefined) safeId(response.project, 'flow_status.project'); }
+  if (tool === 'flow_status') { exactKeys(response, ['ok', 'signedIn', 'inProject', 'credits', 'project'], tool); if (typeof response.signedIn !== 'boolean' || typeof response.inProject !== 'boolean') fail('malformed-response', 'flow_status response is missing account state.'); finiteNumber(response.credits, 'flow_status.credits'); if (response.credits < 0) fail('malformed-response', 'flow_status.credits must not be negative.'); safeId(response.project, 'flow_status.project'); }
   if (tool === 'flow_generate' || tool === 'flow_wait') { exactKeys(response, tool === 'flow_wait' ? ['ok', 'finished', 'jobs'] : ['ok', 'jobs'], tool); if (!Array.isArray(response.jobs)) fail('malformed-response', `${tool}.jobs must be an array.`); response.jobs.forEach((job) => { object(job, `${tool}.jobs[]`); exactKeys(job, ['id', 'status'], `${tool}.jobs[]`); safeId(job.id, `${tool}.jobs[].id`); nonEmptyString(job.status, `${tool}.jobs[].status`); }); if (tool === 'flow_wait' && typeof response.finished !== 'boolean') fail('malformed-response', 'flow_wait.finished must be boolean.'); }
   if (tool === 'flow_download') { exactKeys(response, ['ok', 'files'], tool); if (!Array.isArray(response.files)) fail('malformed-response', 'flow_download.files must be an array.'); response.files.forEach((file) => { object(file, 'flow_download.files[]'); exactKeys(file, ['path', 'assetId', 'checksum'], 'flow_download.files[]'); safePath(file.path, 'flow_download.files[].path'); safeId(file.assetId, 'flow_download.files[].assetId'); validateChecksum(file.checksum, 'flow_download.files[].checksum'); verifyLocalChecksum(file, file.checksum, localFiles); }); }
   if (tool === 'flow_assets') { exactKeys(response, ['ok', 'assets'], tool); if (!Array.isArray(response.assets)) fail('malformed-response', 'flow_assets.assets must be an array.'); response.assets.forEach((asset) => { object(asset, 'flow_assets.assets[]'); exactKeys(asset, ['id', 'title', 'kind', 'checksum', 'path'], 'flow_assets.assets[]'); safeId(asset.id, 'flow_assets.assets[].id'); nonEmptyString(asset.title, 'flow_assets.assets[].title'); nonEmptyString(asset.kind, 'flow_assets.assets[].kind'); validateChecksum(asset.checksum, 'flow_assets.assets[].checksum'); if (asset.path !== undefined) safePath(asset.path, 'flow_assets.assets[].path'); }); }

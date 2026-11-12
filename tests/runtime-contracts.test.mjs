@@ -48,6 +48,7 @@ test('validates every pinned Flow request schema and every fixture response thro
   expectCode(() => validateFlowRequest('flow_status', { detailed: 'yes' }, contract), 'invalid-type');
   expectCode(() => validateFlowRequest('flow_wait', { job_ids: ['../job'], timeout_seconds: 10 }, contract), 'invalid-value');
   expectCode(() => validateFlowRequest('flow_download', { assets: ['asset'], project: '../project' }, contract), 'invalid-value');
+  expectCode(() => validateFlowRequest('flow_generate', { ...flowRequestSamples.flow_generate, scenes: [{ ...flowRequestSamples.flow_generate.scenes[0], undeclared: true }] }, contract), ['invalid-value', 'malformed-response']);
   assert.deepEqual(validateFlowRequest('flow_generate', { ...flowRequestSamples.flow_generate, acknowledge_cost: false }, contract).acknowledge_cost, false);
 });
 
@@ -64,6 +65,9 @@ test('rejects malformed optional fields, unsafe IDs, traversal paths, and malfor
   expectCode(() => validateFlowResponse('flow_assets', { ok: true, assets: [{ id: 'asset-1', title: 'scene', kind: 'image' }] }, contract), ['malformed-response', 'invalid-type']);
   expectCode(() => validateFlowResponse('flow_voices', { ok: true, gemini_ready: true, voices: [{}] }, contract), ['malformed-response', 'invalid-type']);
   expectCode(() => validateFlowResponse('flow_download', { ok: true, files: [{ path: 'images/file.jpeg', assetId: 'asset-1', checksum: 'sha256:placeholder' }] }, contract), 'malformed-response');
+  const status = { ok: true, signedIn: true, inProject: true, credits: 50 };
+  expectCode(() => validateFlowResponse('flow_status', status, contract), ['malformed-response', 'invalid-type']);
+  expectCode(() => validateFlowResponse('flow_status', { ...status, project: '' }, contract), ['malformed-response', 'invalid-type']);
 });
 
 test('verifies a supplied local download file against its strict lowercase sha256 checksum', async () => {
@@ -144,10 +148,12 @@ test('normalizes timeout, rate-limit, and partial-output errors and redacts keys
   assert.deepEqual(redactSecrets({
     arbitrary: 'Bearer synthetic-token',
     nested: { payload: 'sk-synthetic-secret', safe: 'kept' },
-    metadata: { value: 'AIza-SyntheticKey' },
+    metadata: { value: 'AIzaSySyntheticKey' },
+    oauth: 'ya29.SyntheticOAuthToken',
   }), {
     arbitrary: '[REDACTED]',
     nested: { payload: '[REDACTED]', safe: 'kept' },
     metadata: { value: '[REDACTED]' },
+    oauth: '[REDACTED]',
   });
 });
