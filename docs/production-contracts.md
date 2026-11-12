@@ -27,7 +27,12 @@ Canonical state statuses are exactly `draft`, `waiting-for-human`, `queued`, `ru
 `stale`, and `needs-reconciliation`. The old `completedStages` view is retained only as
 a compatibility projection for legacy readers; it is not the canonical vocabulary.
 Legacy stage data, unknown fields, and nontrivial attempt metadata are retained during
-v1 migration. Conflicting canonical and legacy stage payloads fail closed.
+v1 migration. A file without `stateFormat` is the only input eligible for the one-time
+upgrade to `durable-v1`; the loader preserves its legacy data while adding the canonical
+projection. Once `stateFormat: "durable-v1"` is present, this writer owns both
+`stages` and `completedStages` and updates them together. An old writer that changes only
+the legacy projection, removes one projection, or creates a projection conflict fails
+closed with a migration-boundary error; the loader never guesses which data to discard.
 
 Attempts require a normalized idempotency key and a replay fingerprint over all
 sanitized material metadata, including receipt/read-back data, errors, and extension

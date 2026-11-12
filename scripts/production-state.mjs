@@ -75,10 +75,10 @@ function assertProjectionCompatibility(canonical, legacy) {
     const left = canonical[stage] ?? {}; const right = legacy[stage] ?? {};
     const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
     keys.delete('status'); keys.delete('legacyStatus');
-    if (right.status !== legacyStatus(left)) throw new Error(`Invalid production state: legacy/canonical status conflict at ${stage}; refusing unsafe projection.`);
+    if (right.status !== legacyStatus(left)) throw new Error(`Invalid durable-v1 migration boundary: legacy/canonical status conflict at ${stage}; both projections are owned together and must be updated together.`);
     for (const key of keys) {
-      if (!(key in left) || !(key in right)) throw new Error(`Invalid production state: legacy/canonical projection conflict at ${stage}.${key}; refusing silent loss.`);
-      if (JSON.stringify(left[key]) !== JSON.stringify(right[key])) throw new Error(`Invalid production state: legacy/canonical projection conflict at ${stage}.${key}.`);
+      if (!(key in left) || !(key in right)) throw new Error(`Invalid durable-v1 migration boundary: legacy/canonical projection conflict at ${stage}.${key}; both projections are owned together and must be updated together.`);
+      if (JSON.stringify(left[key]) !== JSON.stringify(right[key])) throw new Error(`Invalid durable-v1 migration boundary: legacy/canonical projection conflict at ${stage}.${key}; both projections are owned together and must be updated together.`);
     }
   }
 }
@@ -106,6 +106,7 @@ function normalizeState(raw) {
   if (!hasCanonical && !hasLegacy) throw new Error('Invalid production state: stages or completedStages is required.');
   if (hasCanonical && (!raw.stages || typeof raw.stages !== 'object' || Array.isArray(raw.stages))) throw new Error('Invalid production state: stages must be an object.');
   if (hasLegacy && (!raw.completedStages || typeof raw.completedStages !== 'object' || Array.isArray(raw.completedStages))) throw new Error('Invalid production state: completedStages must be an object.');
+  if (isDurable && (!hasCanonical || !hasLegacy)) throw new Error('Invalid durable-v1 migration boundary: canonical stages and legacy completedStages are owned together; migrate an old file without stateFormat before upgrading.');
   if (hasCanonical && hasLegacy && !isDurable) throw new Error('Invalid production state: conflicting canonical and legacy stage data; refusing silent migration.');
   if (hasCanonical && hasLegacy) assertProjectionCompatibility(raw.stages, raw.completedStages);
   const source = hasCanonical ? raw.stages : raw.completedStages;

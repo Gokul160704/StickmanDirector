@@ -48,6 +48,7 @@ test('loads the sanitized legacy v1 checkpoint fixture into the additive shape',
     await writeFile(file, JSON.stringify(fixture));
     const loaded = await loadProductionState(file);
     assert.equal(loaded.episodeId, 'fixture-episode-01');
+    assert.equal(loaded.stateFormat, 'durable-v1');
     assert.equal(loaded.completedStages.research.status, 'pending');
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -157,6 +158,17 @@ test('fails closed when dual projections disagree on a stage status', async () =
     state.completedStages.research = { status: 'pending' };
     await writeFile(file, JSON.stringify(state));
     await assert.rejects(() => loadProductionState(file, { recover: false }), /status|projection|conflict/i);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('fails closed at the durable migration boundary when an old writer mutates only completedStages', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'stickman-migration-boundary-'));
+  try {
+    const file = path.join(root, 'state.json');
+    const durable = transitionProductionState(createProductionState('boundary-01'), 'script');
+    durable.completedStages.research.status = 'pending';
+    await writeFile(file, JSON.stringify(durable));
+    await assert.rejects(() => loadProductionState(file, { recover: false }), /durable-v1.*migration|owned.*together|projection.*conflict/i);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
