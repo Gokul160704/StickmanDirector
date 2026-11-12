@@ -30,7 +30,8 @@ function canonicalPack(manifest) {
   }
   lines.push('', '## Final storyboard image prompts');
   for (const scene of manifest.scenes) {
-    lines.push('', `### ${scene.order}. ${scene.id}`, '', 'Create one complete, full-frame 16:9 story illustration. Keep headings, captions, labels, panels, arrows, and explanatory callouts out of the image.', '', `Visual description: ${scene.visualDescription ?? scene.description ?? ''}`, `Character references: ${(scene.characters ?? []).join(', ') || 'use the approved recurring character references'}`, `Prop references: ${(scene.props ?? []).join(', ') || 'preserve approved prop continuity'}`, `Camera framing: ${scene.camera ?? 'cinematic medium-wide composition'}`, 'Output intent: 16:9 illustration with clear caption-safe negative space and no visible words, letters, numbers, or interface copy.');
+    const references = scene.references ?? [];
+    lines.push('', `### ${scene.order}. ${scene.id}`, '', 'Create one complete, full-frame 16:9 story illustration. Keep headings, captions, labels, panels, arrows, and explanatory callouts out of the image.', '', `Visual description: ${scene.visualDescription ?? scene.description ?? ''}`, `Character references: ${(scene.characters ?? []).join(', ') || references.join(', ') || 'use the approved recurring character references'}`, `Prop references: ${(scene.props ?? []).join(', ') || 'preserve approved prop continuity'}`, `Reference IDs: ${references.join(', ') || 'use the approved recurring references'}`, `Camera framing: ${scene.camera ?? 'cinematic medium-wide composition'}`, 'Output intent: 16:9 illustration with clear caption-safe negative space and no visible words, letters, numbers, or interface copy.');
   }
   return lines.join('\n') + '\n';
 }
