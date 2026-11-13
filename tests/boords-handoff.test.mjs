@@ -27,3 +27,15 @@ test('maps planned story beats to one stable proposed frame per scene', () => {
   ]);
   assert.equal(handoff.integration.mode, 'manual-import');
 });
+
+test('includes optional safe-framing provenance and a read-only geometry preview per frame', () => {
+  const handoff = createBoordsHandoff({
+    episodeId: 'episode-01', title: 'Episode', topic: 'Topic',
+    safeFraming: { version: 'safe-framing-v1', enabled: true, targetAspectRatio: '16:9', margins: { left: 0.04, top: 0.04, right: 0.08, bottom: 0.1 } },
+    scenes: [{ id: 'scene-01', order: 1, image: 'images/scene-01.png', imageDimensions: { width: 2000, height: 1000 }, durationSeconds: 4 }],
+  });
+  assert.equal(handoff.frames[0].imagePath, 'images/scene-01.png');
+  assert.equal(handoff.frames[0].safeFraming.targetAspectRatio, '16:9');
+  assert.equal(handoff.frames[0].safeFraming.previewOnly, true);
+  assert.equal(handoff.frames[0].safeFraming.destructive, false);
+});

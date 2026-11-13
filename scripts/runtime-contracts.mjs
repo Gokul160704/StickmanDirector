@@ -130,7 +130,13 @@ function canonical(value) {
   return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
 }
 function hash(value) { return createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex'); }
-export function flowRequestHash(request, composer) { return hash({ request, model: composer.model, aspectRatio: composer.aspectRatio, variants: composer.variants }); }
+export function flowRequestHash(request, composer) {
+  const safeFramingHash = composer.safeFramingHash === undefined ? undefined : nonEmptyString(composer.safeFramingHash, 'Flow composer safe-framing hash');
+  if (safeFramingHash !== undefined && !/^sha256:[a-f0-9]{64}$/.test(safeFramingHash)) fail('preflight', 'Flow composer safe-framing hash must be a SHA-256 digest.');
+  return hash({ request, model: composer.model, aspectRatio: composer.aspectRatio, variants: composer.variants,
+    ...(safeFramingHash !== undefined ? { safeFramingHash } : {}),
+  });
+}
 export function flowQuoteHash(quote) { return hash({ currency: quote.currency, perOutput: quote.perOutput, total: quote.total, outputs: quote.outputs }); }
 
 export function preflightFlowGeneration({ status, request, composer, entitlement, quote, approval } = {}) {
@@ -146,7 +152,7 @@ export function preflightFlowGeneration({ status, request, composer, entitlement
   object(approval, 'Flow approval'); const requestHash = flowRequestHash(request, composer); const quoteHash = flowQuoteHash(quote);
   if (approval.approved !== true || approval.requestHash !== requestHash || approval.quoteHash !== quoteHash) fail('preflight', 'Flow request, quote, or composer consent changed.');
   finiteNumber(request.max_credits, 'flow_generate.max_credits'); if (quote.total > request.max_credits) fail('preflight', 'Flow quote exceeds max_credits.'); if (quote.total > status.credits) fail('preflight', 'Flow account lacks enough credits for the quote.');
-  return { provider: 'flow', model: composer.model, aspectRatio: composer.aspectRatio, outputs: expectedOutputs, totalCredits: quote.total, requestHash, quoteHash };
+  return { provider: 'flow', model: composer.model, aspectRatio: composer.aspectRatio, outputs: expectedOutputs, totalCredits: quote.total, requestHash, quoteHash, ...(composer.safeFramingHash ? { safeFramingHash: composer.safeFramingHash } : {}) };
 }
 
 export function prepareFlowRetry({ error, readback, failedShotIds, shotId, consented, previousRetries = [], request } = {}) {

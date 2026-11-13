@@ -88,3 +88,21 @@ explicit operator choice. FFmpeg is invoked with an argument array, never a shel
 FFmpeg and FFprobe can be selected with `STICKMAN_FFMPEG` and `STICKMAN_FFPROBE`
 (or the conventional `FFMPEG` and `FFPROBE`) when the host does not expose the
 executables under their default names.
+
+## Safe-framing profile
+
+`safe-framing-v1` is optional schema-v1 metadata for new episodes. Its default
+fractions are left 0.04, top 0.04, right 0.08, and bottom 0.10; the protected
+rectangle is derived from those margins. Per-scene profiles may override the
+episode profile. Profiles are normalized and SHA-256 hashed. Guided sessions
+persist the profile, and changing it invalidates storyboard and downstream
+approvals. Flow approval hashes may include this profile hash while requests
+that predate the field retain their existing hash shape. Boords handoffs may
+include profile and read-only geometry preview metadata; their original image
+paths remain the source of truth.
+
+Geometry previews fit a 16:9 region without stretching, calculate protected
+pixel bounds, and can warn about supplied normalized landmark boxes or proposed
+trim ratios. They never crop or modify an image. Composition prompts are
+heuristic guidance and cannot guarantee model placement. Provider marks and
+provenance must remain intact; watermark removal or concealment is prohibited.

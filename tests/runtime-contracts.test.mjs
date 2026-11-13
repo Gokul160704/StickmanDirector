@@ -98,6 +98,12 @@ test('requires finite, exact, consented Flow quotes and binds approval to the co
   const validApproval = { approved: true, requestHash: flowRequestHash(request, composer), quoteHash: flowQuoteHash(quote) };
   const approved = preflightFlowGeneration({ status, request, composer, entitlement, quote, approval: validApproval });
   assert.equal(approved.totalCredits, 4);
+  const profileA = `sha256:${'a'.repeat(64)}`;
+  const profileB = `sha256:${'b'.repeat(64)}`;
+  const framingComposer = { ...composer, safeFramingHash: profileA };
+  const framingApproval = { ...validApproval, requestHash: flowRequestHash(request, framingComposer) };
+  assert.equal(preflightFlowGeneration({ status, request, composer: framingComposer, entitlement, quote, approval: framingApproval }).safeFramingHash, profileA);
+  expectCode(() => preflightFlowGeneration({ status, request, composer: { ...framingComposer, safeFramingHash: profileB }, entitlement, quote, approval: framingApproval }), 'preflight');
   for (const badQuote of [
     { ...quote, perOutput: Number.NaN },
     { ...quote, total: -1 },
@@ -113,6 +119,15 @@ test('requires finite, exact, consented Flow quotes and binds approval to the co
   expectCode(() => preflightFlowGeneration({ status, request, composer: { ...composer, model: 'changed-model' }, entitlement, quote, approval: validApproval }), 'preflight');
   expectCode(() => preflightFlowGeneration({ status, request, composer: { ...composer, aspectRatio: '9:16' }, entitlement, quote, approval: validApproval }), 'preflight');
   expectCode(() => preflightFlowGeneration({ status, request, composer, entitlement, quote: { ...quote, perOutput: 2, total: 2 }, approval: validApproval }), 'preflight');
+});
+
+test('binds optional safe-framing profile hashes into Flow approval dependencies', () => {
+  const request = { project: 'synthetic-project', scenes: [{ id: 'scene-01', prompt: 'A quiet room.', references: [] }] };
+  const composer = { model: 'Nano Banana 2.1', aspectRatio: '16:9', variants: 1 };
+  const before = flowRequestHash(request, { ...composer, safeFramingHash: `sha256:${'c'.repeat(64)}` });
+  const after = flowRequestHash(request, { ...composer, safeFramingHash: `sha256:${'d'.repeat(64)}` });
+  assert.notEqual(before, after);
+  assert.equal(flowRequestHash(request, composer), flowRequestHash(request, composer));
 });
 
 test('rejects video-generation intent before Flow validation or provider preflight', () => {

@@ -29,3 +29,14 @@ Earlier audits exercised video-capable Flow operations, including a short vertic
 Do check live image quotes and credits, bind approval to the exact still-image request, read back uncertain jobs, and keep approved stills as the visual source of truth.
 
 Do not call or propose video-generation operations, select Omni/Veo/video models, add motion prompts, infer approval from MCP caps, or publish without the separate human gate.
+
+## Still-image framing guidance
+
+The shared prompt-pack composer appends the versioned safe-framing profile to
+canonical and legacy still prompts, including reusable reference prompts. It
+requests extra right/bottom negative space and keeps story-critical subjects in
+the normalized protected area. This is a prompt heuristic only: it does not
+guarantee overlay location, detect semantic content, or replace full-size human
+review. The profile hash belongs in provenance/approval dependencies. Crop
+geometry is preview-only; do not crop, mask, erase, obscure or alter a Flow
+watermark or provenance metadata.

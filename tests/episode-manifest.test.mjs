@@ -72,6 +72,20 @@ test('preserves optional image-count planning metadata and story beat ids', () =
   assert.equal(result.scenes[0].storyBeatId, 'beat-01');
 });
 
+test('validates optional safe-framing profiles and per-scene overrides additively', () => {
+  const result = validateEpisodeManifest({
+    ...valid,
+    safeFraming: { version: 'safe-framing-v1', margins: { left: 0.04, top: 0.04, right: 0.08, bottom: 0.1 } },
+    scenes: [{ ...valid.scenes[0], safeFraming: { margins: { right: 0.12 } } }],
+  });
+  assert.equal(result.safeFraming.targetAspectRatio, '16:9');
+  assert.match(result.safeFraming.hash, /^sha256:/);
+  assert.equal(result.scenes[0].safeFraming.margins.right, 0.12);
+  assert.equal(validateEpisodeManifest(valid).safeFraming, undefined);
+  assert.throws(() => validateEpisodeManifest({ ...valid, safeFraming: { margins: { right: Number.NaN } } }), /safe-framing.*right/i);
+  assert.throws(() => validateEpisodeManifest({ ...valid, scenes: [{ ...valid.scenes[0], safeFraming: { margins: { left: 0.8, right: 0.3 } } }] }), /safe-framing.*protected.*area/i);
+});
+
 test('rejects malformed optional image-count planning metadata', () => {
   assert.throws(() => validateEpisodeManifest({ ...valid, planning: { imageCount: { mode: 'custom', requestedCount: 0 } } }), /planning\.imageCount\.requestedCount.*positive integer/i);
   assert.throws(() => validateEpisodeManifest({ ...valid, planning: { imageCount: { mode: 'unknown', requestedCount: 8, recommendedCount: 6, pace: 'cinematic' } } }), /planning\.imageCount\.mode/i);

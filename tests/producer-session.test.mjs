@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { resumeProducerSession } from '../scripts/producer-contract.mjs';
 
 import {
   answerGuidedChoice,
@@ -9,6 +10,7 @@ import {
   getNextQuestion,
   goBackGuidedStage,
   invalidateGuidedStage,
+  setGuidedSafeFramingProfile,
   manualFallback,
   regenerateSelectedShot,
   resumeGuidedProducer,
@@ -175,6 +177,19 @@ test('selected-shot regeneration records an approval request without generation'
   assert.deepEqual(next.regenerationRequests, [{ shotId: 'shot-03', status: 'awaiting-approval' }]);
   assert.equal(next.nextHumanAction.type, 'approve-shot-regeneration');
   assert.throws(() => regenerateSelectedShot(next, 'shot-03'), /already has a regeneration request/);
+});
+
+test('persists safe-framing preferences and invalidates downstream approvals when changed', () => {
+  let session = createGuidedProducer({ episodeId: 'episode-framing' });
+  assert.equal(session.safeFramingProfile.version, 'safe-framing-v1');
+  session.approvedStages.storyboard = { revision: 1 };
+  session.approvedStages.approvals = { revision: 1 };
+  session = setGuidedSafeFramingProfile(session, { version: 'safe-framing-v2', margins: { left: 0.06 } });
+  assert.equal(session.safeFramingProfile.version, 'safe-framing-v2');
+  assert.equal(session.approvedStages.storyboard, undefined);
+  assert.equal(session.approvedStages.approvals, undefined);
+  assert.match(session.invalidations.at(-1).reason, /safe-framing-profile-changed/);
+  assert.deepEqual(resumeProducerSession(structuredClone(session)).safeFramingProfile, session.safeFramingProfile);
 });
 
 test('manual fallback is non-interactive and names every guided decision', () => {
