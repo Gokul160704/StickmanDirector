@@ -2,8 +2,30 @@
 import { mkdir, writeFile, access } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import { scaffoldSeries } from './series-bible.mjs';
 
-const title = process.argv.slice(2).join(' ').trim();
+const args = process.argv.slice(2);
+const multiIndex = args.indexOf('--multi-episode');
+if (multiIndex !== -1) {
+  const countIndex = args.indexOf('--episodes');
+  const titleParts = args.slice(multiIndex + 1, countIndex === -1 ? args.length : countIndex);
+  const title = titleParts.join(' ').trim();
+  const episodeCount = countIndex === -1 ? 3 : Number(args[countIndex + 1]);
+  if (!title) {
+    console.error('Usage: node scripts/new-series.mjs --multi-episode "Series Name" [--episodes N]');
+    process.exit(2);
+  }
+  try {
+    const result = await scaffoldSeries(path.resolve('projects', title.normalize('NFKD').toLowerCase().replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')), { name: title, topic: title, episodeCount });
+    console.log(`Created multi-episode series scaffold: ${result.root}`);
+    console.log(`Episodes: ${result.episodes.length}`);
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  }
+  // The legacy positional branch below is intentionally unchanged.
+} else {
+const title = args.join(' ').trim();
 if (!title) {
   console.error('Usage: node scripts/new-series.mjs "Series Name"');
   process.exit(2);
@@ -48,3 +70,4 @@ const files = {
 for (const [name, content] of Object.entries(files)) await writeFile(path.join(root, name), content, { flag: 'wx' });
 console.log(`Created local series scaffold: ${root}`);
 console.log('Next: fill script.md and continuity.md, plan Boords frames, establish references in Flow, then build a prompt pack.');
+}
