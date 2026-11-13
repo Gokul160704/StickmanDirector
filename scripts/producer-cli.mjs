@@ -1,9 +1,28 @@
 #!/usr/bin/env node
 
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { createDraftDocumentaryPackage, formatDocumentaryPackage } from './documentary-package.mjs';
 import { manualFallback } from './producer-session.mjs';
 import { createSeriesProducer, resumeSeriesProducer } from './series-producer.mjs';
 
-if (process.argv.includes('--manual')) {
+if (process.argv.includes('--documentary-create')) {
+  const index = process.argv.indexOf('--documentary-create');
+  const title = process.argv[index + 1];
+  const root = process.argv[index + 2];
+  const countIndex = process.argv.indexOf('--episodes');
+  const episodeCount = countIndex === -1 ? 3 : Number(process.argv[countIndex + 1]);
+  if (!title || !root || !Number.isInteger(episodeCount) || episodeCount < 1) {
+    console.error('Usage: node scripts/producer-cli.mjs --documentary-create <title> <package-root> [--episodes N]');
+    process.exitCode = 2;
+  } else {
+    const documentary = createDraftDocumentaryPackage({ title, episodeCount });
+    await mkdir(root, { recursive: true });
+    await writeFile(path.join(root, 'documentary-package.json'), `${JSON.stringify(documentary, null, 2)}\n`, { flag: 'wx' });
+    await writeFile(path.join(root, 'documentary-package.md'), formatDocumentaryPackage(documentary), { flag: 'wx' });
+    process.stdout.write(`${JSON.stringify({ mode: 'documentary', root, episodes: documentary.episodes.length, approval: documentary.approval }, null, 2)}\n`);
+  }
+} else if (process.argv.includes('--manual')) {
   process.stdout.write(`${manualFallback()}\n`);
 } else if (process.argv.includes('--series')) {
   const root = process.argv[process.argv.indexOf('--series') + 1];
