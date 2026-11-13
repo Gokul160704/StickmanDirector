@@ -31,3 +31,5 @@ Human approval is a separate operation: `approveSeriesRevision()` creates a new 
 Series creation refuses an existing root and all file writes are exclusive or atomic. Active-bible replacement validates the destination and uses a temporary file with rollback, while a failed replacement removes only the new snapshot and preserves the previous active and approved revisions. IDs, episode indexes, predecessor references, hashes, absolute paths, traversal paths, missing reference files, symlink escapes, and predecessor cycles are rejected before the bible is accepted. If a new scaffold fails part way through, only its newly created root is removed; an existing project is never deleted.
 
 All tests use temporary folders and local fixtures. The series module is pure with respect to providers and media, so it is safe to validate or resume a planning workflow offline.
+
+The Guided Producer integration in `scripts/series-producer.mjs` layers on this foundation without changing schema version 1. It keeps per-episode approval bindings and manual Boords import payloads separate, and refuses to carry approval across a changed revision or continuity dependency.

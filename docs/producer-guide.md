@@ -75,6 +75,24 @@ The automated evidence is `tests/producer-session.test.mjs`. The test suite
 stubs `fetch` only to prove that startup does not call it; no provider or
 network service is invoked.
 
+## Multi-episode series mode
+
+Series mode is opt-in and defaults to a three-episode proposal. Create or
+resume it locally with the additive CLI:
+
+```text
+node scripts/producer-cli.mjs --series-create "Series name" "projects/series-name" --episodes 3
+node scripts/producer-cli.mjs --series "projects/series-name"
+```
+
+Each episode owns `episodes/<episode-id>/episode.json`, its own approval state,
+continuity inputs, pinned series-bible revision hash, and manual Boords handoff.
+`series-producer.mjs` validates predecessor order, preserves completed episode
+files during resume, and invalidates revision-bound downstream approvals when
+the bible, references, narrator, style, safe-framing profile, or image plan
+changes. The handoff is a local JSON import payload; it never creates,
+reorders, deletes, or reviews frames in Boords automatically.
+
 ## Offline Producer E2E verification
 
 The no-spend integration harness is `scripts/producer-e2e.mjs` and its focused
