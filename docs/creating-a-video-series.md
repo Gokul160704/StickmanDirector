@@ -22,6 +22,10 @@ Use the established Gemini TTS workflow in [AUDIO.md](../AUDIO.md). Keep the spo
 
 Use only approved full-frame Flow stills as visual inputs. The local FFmpeg renderer assembles those stills with Gemini narration and captions into the final MP4 and SRT. Review the complete episode for pacing, audio levels, caption timing, continuity, and correct provenance. StickmanDirector does not generate or require Flow video clips.
 
+## Series foundation mode
+
+For an offline, versioned multi-episode foundation, see [series-foundation.md](series-foundation.md). It adds stable continuity metadata and episode scaffolding without changing the existing episode manifest or invoking a provider.
+
 ## Start with a topic
 
 Provide a topic and, if known, the intended audience, episode length, number of episodes, narration language, and tone. If those are undecided, start with the topic and review a proposed audience, format, and series outline before generating assets.
