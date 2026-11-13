@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateEpisodeManifest } from '../scripts/episode-manifest.mjs';
+import { applyImageCountPlan, validateEpisodeManifest } from '../scripts/episode-manifest.mjs';
 
 const valid = {
   schemaVersion: 1,
@@ -55,4 +55,40 @@ test('rejects POSIX and Windows traversal or absolute asset paths consistently',
 
 test('rejects output aspect ratios other than 16:9', () => {
   assert.throws(() => validateEpisodeManifest({ ...valid, output: { ...valid.output, aspectRatio: '9:16' } }), /16:9.*supported/i);
+});
+
+test('preserves optional image-count planning metadata and story beat ids', () => {
+  const result = validateEpisodeManifest({
+    ...valid,
+    planning: {
+      imageCount: {
+        mode: 'custom', requestedCount: 8, recommendedCount: 6, pace: 'cinematic',
+        timingSource: 'approved', version: 'image-count-planner-v1', dependencyHash: 'sha256:plan',
+      },
+    },
+    scenes: [{ ...valid.scenes[0], storyBeatId: 'beat-01' }],
+  });
+  assert.equal(result.planning.imageCount.requestedCount, 8);
+  assert.equal(result.scenes[0].storyBeatId, 'beat-01');
+});
+
+test('rejects malformed optional image-count planning metadata', () => {
+  assert.throws(() => validateEpisodeManifest({ ...valid, planning: { imageCount: { mode: 'custom', requestedCount: 0 } } }), /planning\.imageCount\.requestedCount.*positive integer/i);
+  assert.throws(() => validateEpisodeManifest({ ...valid, planning: { imageCount: { mode: 'unknown', requestedCount: 8, recommendedCount: 6, pace: 'cinematic' } } }), /planning\.imageCount\.mode/i);
+});
+
+test('applies a planner result additively without changing schema version or episode identity', () => {
+  const plan = {
+    version: 'image-count-planner-v1', mode: 'custom', requestedCount: 2, recommendedCount: 2,
+    pace: 'cinematic', timingSource: 'approved', dependencyHash: 'sha256:plan',
+    shots: [
+      { sceneId: 'scene-01', storyBeatId: 'beat-01', durationFrames: 60 },
+    ],
+  };
+  const result = applyImageCountPlan(valid, plan);
+  assert.equal(result.schemaVersion, 1);
+  assert.equal(result.episodeId, valid.episodeId);
+  assert.equal(result.planning.imageCount.mode, 'custom');
+  assert.equal(result.scenes[0].storyBeatId, 'beat-01');
+  assert.equal(result.scenes[0].durationSeconds, 2);
 });

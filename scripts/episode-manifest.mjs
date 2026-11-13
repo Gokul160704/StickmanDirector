@@ -22,6 +22,11 @@ function positiveNumber(value, field, { zero = false } = {}) {
   return value;
 }
 
+function positiveInteger(value, field) {
+  if (!Number.isInteger(value) || value <= 0) fail(`${field} must be a positive integer.`);
+  return value;
+}
+
 export function assertSafeRelativeAssetPath(value, field = 'asset path') {
   requiredString(value, field);
   if (path.isAbsolute(value) || /^[A-Za-z]:/.test(value) || /^[\\/]/.test(value) || /[\0\r\n]/.test(value)) fail(`${field} must be a relative path inside the project root.`);
@@ -72,6 +77,19 @@ export function validateEpisodeManifest(input, { root = process.cwd() } = {}) {
   if (input.output.path !== undefined) input.output.path = assertSafeRelativeAssetPath(input.output.path, 'output.path');
   const editing = input.editing ?? {};
   for (const field of ['fadeInSeconds', 'fadeOutSeconds']) if (editing[field] !== undefined) positiveNumber(editing[field], `editing.${field}`, { zero: true });
+  const planning = input.planning ?? {};
+  if (typeof planning !== 'object' || Array.isArray(planning)) fail('planning must be an object.');
+  if (planning.imageCount !== undefined) {
+    const imageCount = planning.imageCount;
+    if (!imageCount || typeof imageCount !== 'object' || Array.isArray(imageCount)) fail('planning.imageCount must be an object.');
+    if (!['recommended', 'custom'].includes(imageCount.mode)) fail('planning.imageCount.mode must be recommended or custom.');
+    positiveInteger(imageCount.requestedCount, 'planning.imageCount.requestedCount');
+    positiveInteger(imageCount.recommendedCount, 'planning.imageCount.recommendedCount');
+    if (!['reflective', 'cinematic', 'energetic'].includes(imageCount.pace)) fail('planning.imageCount.pace must be reflective, cinematic, or energetic.');
+    requiredString(imageCount.timingSource, 'planning.imageCount.timingSource');
+    requiredString(imageCount.version, 'planning.imageCount.version');
+    if (imageCount.dependencyHash !== undefined) requiredString(imageCount.dependencyHash, 'planning.imageCount.dependencyHash');
+  }
   if (input.scenes !== undefined && !Array.isArray(input.scenes)) fail('scenes must be an array.');
   const production = input.production ?? {};
   if (production.stage !== undefined && !STAGES.includes(production.stage)) fail(`production.stage must be one of: ${STAGES.join(', ')}.`);
@@ -86,6 +104,7 @@ export function validateEpisodeManifest(input, { root = process.cwd() } = {}) {
     if (!Number.isInteger(order) || order < 1) fail(`scenes[${index}].order must be a positive integer.`);
     const image = assertSafeRelativeAssetPath(scene.image, `scenes[${index}].image`);
     const result = { ...scene, id, order, image };
+    if (scene.storyBeatId !== undefined) result.storyBeatId = requiredString(scene.storyBeatId, `scenes[${index}].storyBeatId`);
     if (scene.durationSeconds !== undefined) result.durationSeconds = positiveNumber(scene.durationSeconds, `scenes[${index}].durationSeconds`);
     if (scene.narration !== undefined) result.narration = requiredString(scene.narration, `scenes[${index}].narration`);
     result.captions = (scene.captions ?? []).map((caption, captionIndex) => validateCaption(caption, index, captionIndex));
@@ -103,8 +122,36 @@ export function validateEpisodeManifest(input, { root = process.cwd() } = {}) {
     description: input.description.trim(), targetAudience: input.targetAudience.trim(),
     output: { ...output, resolution: output.resolution.trim(), aspectRatio: output.aspectRatio.trim() },
     references: { ...references, visualStyle: references.visualStyle ?? '' },
-    audio: { ...audio }, captions: { timingSource: 'manual', ...captions }, editing: { ...editing }, production: { stage: 'research', ...production }, scenes,
+    audio: { ...audio }, captions: { timingSource: 'manual', ...captions }, editing: { ...editing }, planning: { ...planning }, production: { stage: 'research', ...production }, scenes,
   };
+}
+
+export function applyImageCountPlan(manifest, plan) {
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) throw new Error('manifest must be an object.');
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan)) throw new Error('image-count plan must be an object.');
+  if (!Array.isArray(plan.shots)) throw new Error('image-count plan shots must be an array.');
+  const next = structuredClone(manifest);
+  next.planning = { ...(next.planning ?? {}), imageCount: {
+    mode: plan.mode,
+    requestedCount: plan.requestedCount,
+    recommendedCount: plan.recommendedCount,
+    pace: plan.pace,
+    timingSource: plan.timingSource,
+    version: plan.version,
+    ...(plan.dependencyHash ? { dependencyHash: plan.dependencyHash } : {}),
+  } };
+  const shots = new Map(plan.shots.map((shot) => [shot.sceneId, shot]));
+  next.scenes = (next.scenes ?? []).map((scene) => {
+    const shot = shots.get(scene.id);
+    if (!shot) return scene;
+    if (!Number.isInteger(shot.durationFrames) || shot.durationFrames <= 0) throw new Error(`image-count plan shot ${scene.id} durationFrames must be a positive integer.`);
+    return {
+      ...scene,
+      ...(shot.storyBeatId ? { storyBeatId: shot.storyBeatId } : {}),
+      durationSeconds: shot.durationFrames / 30,
+    };
+  });
+  return next;
 }
 
 export function importEpisodeManifest(input, options = {}) {

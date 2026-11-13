@@ -15,6 +15,7 @@ import {
   saveGuidedProducer,
   selectGuidedProvider,
   advanceGuidedStage,
+  planGuidedImageCount,
 } from '../scripts/producer-session.mjs';
 
 test('fresh startup exposes deterministic offline choices without calling providers', () => {
@@ -46,9 +47,66 @@ test('guided choices cover preferences and advance only after required decisions
     ['language', 'en'],
     ['aspectRatio', '16:9'],
     ['visualStyle', 'illustrated-stickman'],
+    ['imageCountMode', 'recommended'],
+    ['pace', 'cinematic'],
   ]) session = answerGuidedChoice(session, id, value);
   session = advanceGuidedStage(session);
   assert.equal(session.stage, 'script');
+});
+
+test('guides custom image count and stores a deterministic offline shot plan', () => {
+  let session = createGuidedProducer({ episodeId: 'episode-01' });
+  session = answerGuidedChoice(session, 'source', 'topic');
+  session = advanceGuidedStage(session);
+  for (const [id, value] of [
+    ['duration', 'standard'], ['audience', 'general'], ['tone', 'curious'],
+    ['language', 'en'], ['aspectRatio', '16:9'], ['visualStyle', 'illustrated-stickman'],
+    ['imageCountMode', 'custom'], ['pace', 'reflective'], ['customImageCount', 8],
+  ]) session = answerGuidedChoice(session, id, value);
+  assert.equal(getNextQuestion(session), null);
+  const planned = planGuidedImageCount(session, [
+    { id: 'beat-01', startSeconds: 0, endSeconds: 8, essential: true },
+    { id: 'beat-02', startSeconds: 8, endSeconds: 16, essential: true },
+  ]);
+  assert.equal(planned.imageCountPlan.requestedCount, 8);
+  assert.equal(planned.imageCountPlan.shots.length, 8);
+  assert.equal(planned.imageCountPlan.mode, 'custom');
+  assert.deepEqual(session.imageCountPlan, undefined);
+});
+
+test('validates custom image count as a positive integer and preserves it on resume', () => {
+  let session = createGuidedProducer({ episodeId: 'episode-01' });
+  session = answerGuidedChoice(session, 'source', 'topic');
+  session = advanceGuidedStage(session);
+  for (const [id, value] of [
+    ['duration', 'standard'], ['audience', 'general'], ['tone', 'curious'],
+    ['language', 'en'], ['aspectRatio', '16:9'], ['visualStyle', 'illustrated-stickman'],
+    ['imageCountMode', 'custom'], ['pace', 'cinematic'],
+  ]) session = answerGuidedChoice(session, id, value);
+  assert.throws(() => answerGuidedChoice(session, 'customImageCount', 2.5), /positive integer/i);
+  assert.throws(() => answerGuidedChoice(session, 'customImageCount', 0), /positive integer/i);
+  session = answerGuidedChoice(session, 'customImageCount', 24);
+  assert.equal(resumeGuidedProducer(saveGuidedProducer(session)).answers.customImageCount, 24);
+});
+
+test('invalidates downstream approvals when the image-count dependency changes', () => {
+  let session = createGuidedProducer({ episodeId: 'episode-01' });
+  session = answerGuidedChoice(session, 'source', 'topic');
+  session = advanceGuidedStage(session);
+  session = answerGuidedChoice(session, 'imageCountMode', 'custom');
+  session = answerGuidedChoice(session, 'pace', 'cinematic');
+  session = answerGuidedChoice(session, 'customImageCount', 8);
+  const beats = [
+    { id: 'beat-01', startSeconds: 0, endSeconds: 4, essential: true },
+    { id: 'beat-02', startSeconds: 4, endSeconds: 8, essential: true },
+  ];
+  session = planGuidedImageCount(session, beats);
+  session.approvedStages = { storyboard: { revision: 1 }, images: { revision: 1 }, audio: { revision: 1 } };
+  session = answerGuidedChoice(session, 'customImageCount', 12);
+  session = planGuidedImageCount(session, beats);
+  assert.equal(session.approvedStages.storyboard, undefined);
+  assert.equal(session.approvedStages.images, undefined);
+  assert.match(session.invalidations.at(-1).reason, /image-count planning inputs changed/i);
 });
 
 test('save and resume preserve the exact wizard step and choices', () => {
@@ -65,6 +123,7 @@ test('Back and Edit preserve approvals until explicit invalidation is recorded',
   for (const [id, value] of [
     ['duration', 'short'], ['audience', 'general'], ['tone', 'warm'],
     ['language', 'en'], ['aspectRatio', '16:9'], ['visualStyle', 'minimal'],
+    ['imageCountMode', 'recommended'], ['pace', 'reflective'],
   ]) session = answerGuidedChoice(session, id, value);
   session = advanceGuidedStage(session);
   session = answerGuidedChoice(session, 'scriptMode', 'draft');
@@ -120,7 +179,7 @@ test('selected-shot regeneration records an approval request without generation'
 
 test('manual fallback is non-interactive and names every guided decision', () => {
   const guide = manualFallback();
-  for (const choice of ['topic', 'script', 'article', 'existing-episode', 'duration', 'audience', 'tone', 'language', 'aspect ratio', 'visual style', 'provider']) {
+  for (const choice of ['topic', 'script', 'article', 'existing-episode', 'duration', 'audience', 'tone', 'language', 'aspect ratio', 'visual style', 'image count', 'pace', 'provider']) {
     assert.match(guide.toLowerCase(), new RegExp(choice));
   }
 });
