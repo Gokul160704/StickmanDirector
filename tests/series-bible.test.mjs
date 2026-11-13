@@ -8,6 +8,7 @@ import {
   computeRevisionHash,
   validateSeriesBible,
   writeSeriesRevision,
+  approveSeriesRevision,
   updateSeriesPlanning,
   diffSeriesBibles,
   scaffoldSeries,
@@ -35,21 +36,46 @@ test('rejects duplicate IDs, invalid counts, predecessor cycles, and bad hashes'
   await assert.rejects(validateSeriesBible({ ...bible, revision: { ...bible.revision, integrity: { ...bible.revision.integrity, hash: '0'.repeat(64) } } }), /hash/i);
 });
 
+test('rejects missing, blank, malformed, mismatched, and invalid revision integrity metadata', async () => {
+  const bible = createSeriesBible({ name: 'Demo', episodeCount: 1, slug: 'demo', createdAt: '2026-11-13T00:00:00.000Z' });
+  const cases = [
+    { revision: undefined },
+    { revision: { ...bible.revision, integrity: undefined } },
+    { revision: { ...bible.revision, integrity: { algorithm: 'sha256', hash: '' } } },
+    { revision: { ...bible.revision, integrity: { algorithm: 'SHA-256', hash: '0'.repeat(64) } } },
+    { revision: { ...bible.revision, integrity: { algorithm: 'sha256', hash: 'not-a-hash' } } },
+    { revision: { ...bible.revision, integrity: { algorithm: 'sha256', hash: '0'.repeat(64) } } },
+    { revision: { ...bible.revision, version: 0 } },
+    { revision: { ...bible.revision, version: '1' } },
+  ];
+  for (const change of cases) await assert.rejects(validateSeriesBible({ ...bible, ...change }), /revision|hash|integrity/i);
+});
+
 test('writes append-only revisions and preserves approved snapshots', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'stickman-bible-'));
   try {
     const first = createSeriesBible({ name: 'Demo', episodeCount: 1, slug: 'demo', createdAt: '2026-11-13T00:00:00.000Z' });
     await writeSeriesRevision(root, first);
-    const approved = { ...first, revision: { ...first.revision, status: 'approved', approved: true } };
-    await writeSeriesRevision(root, approved, { version: 2 });
+    await assert.rejects(writeSeriesRevision(root, { ...first, revision: { ...first.revision, status: 'approved', approved: true } }, { version: 2 }), /approval|authorized|approveSeriesRevision/i);
+    const approved = await approveSeriesRevision(root, { approvedBy: 'chief', approvedAt: '2026-11-13T00:00:00.000Z', authorizationId: 'trello:#17-review-1' });
+    assert.equal(approved.revision.approval.status, 'approved');
+    assert.equal(approved.revision.approval.boundRevisionHash.length, 64);
     const before = await readFile(path.join(root, 'series-bible.revisions', 'revision-02.json'), 'utf8');
-    const changed = { ...approved, premise: 'Changed premise' };
-    const result = await writeSeriesRevision(root, changed, { version: 3 });
+    const result = await updateSeriesPlanning(root, { premise: 'Changed premise' });
     assert.equal(result.revision.version, 3);
     assert.equal(await readFile(path.join(root, 'series-bible.revisions', 'revision-02.json'), 'utf8'), before);
     assert.equal(JSON.parse(await readFile(path.join(root, 'series-bible.json'), 'utf8')).revision.version, 3);
     await assert.rejects(writeSeriesRevision(root, first, { version: 2 }), /already exists|immutable/i);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('rejects an approval record whose authorization is not bound to the revision', async () => {
+  const bible = createSeriesBible({ name: 'Demo', episodeCount: 1, slug: 'demo', createdAt: '2026-11-13T00:00:00.000Z' });
+  const candidate = { ...bible, revision: { ...bible.revision, approved: true, status: 'approved', approval: { status: 'approved', approvedBy: 'chief', approvedAt: '2026-11-13T00:00:00.000Z', authorizationId: 'fake', boundRevisionHash: '0'.repeat(64) } } };
+  await assert.rejects(validateSeriesBible(candidate), /approval|authorization|bound/i);
+  candidate.revision.approval.boundRevisionHash = computeRevisionHash(candidate);
+  candidate.revision.approval.approvedAt = 'not-a-date';
+  await assert.rejects(validateSeriesBible(candidate), /approval|authorization|bound/i);
 });
 
 test('updates planning into a new review-required revision and reports changed top-level fields', async () => {
@@ -92,4 +118,32 @@ test('scaffolds independent episodes and refuses an existing root', async () => 
     assert.equal(JSON.parse(await readFile(path.join(root, 'episodes', 'demo-episode-03', 'episode.json'), 'utf8')).schemaVersion, 1);
     await assert.rejects(scaffoldSeries(root, { name: 'Demo', episodeCount: 3 }), /refusing to overwrite|already exists/i);
   } finally { await rm(parent, { recursive: true, force: true }); }
+});
+
+test('rejects an active bible symlink and preserves the outside target', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'stickman-bible-link-root-'));
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'stickman-bible-link-outside-'));
+  try {
+    const target = path.join(root, 'series-bible.json');
+    const outsideTarget = path.join(outside, 'series-bible.json');
+    await writeFile(outsideTarget, 'outside-original', 'utf8');
+    await symlink(outsideTarget, target, 'file');
+    const bible = createSeriesBible({ name: 'Demo', episodeCount: 1, slug: 'demo', createdAt: '2026-11-13T00:00:00.000Z' });
+    await assert.rejects(writeSeriesRevision(root, bible), /outside the project root|symlink/i);
+    assert.equal(await readFile(outsideTarget, 'utf8'), 'outside-original');
+  } finally { await rm(root, { recursive: true, force: true }); await rm(outside, { recursive: true, force: true }); }
+});
+
+test('rolls back a failed active write without orphaning a new snapshot', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'stickman-bible-atomic-'));
+  try {
+    const first = createSeriesBible({ name: 'Demo', episodeCount: 1, slug: 'demo', createdAt: '2026-11-13T00:00:00.000Z' });
+    await writeSeriesRevision(root, first);
+    const next = { ...first, premise: 'new premise' };
+    next.revision.integrity.hash = computeRevisionHash(next);
+    let failed = false;
+    await assert.rejects(writeSeriesRevision(root, next, { version: 2, io: { rename: async (from, to) => { if (!failed && to.endsWith('series-bible.json')) { failed = true; throw new Error('simulated interrupted active write'); } return (await import('node:fs/promises')).rename(from, to); } } }), /interrupted active write/i);
+    assert.equal(JSON.parse(await readFile(path.join(root, 'series-bible.json'), 'utf8')).revision.version, 1);
+    await assert.rejects(readFile(path.join(root, 'series-bible.revisions', 'revision-02.json'), 'utf8'), /ENOENT/);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

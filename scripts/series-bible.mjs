@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { access, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { access, link, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { assertPathInsideRoot } from './path-safety.mjs';
 
@@ -28,6 +28,21 @@ function integrityPayload(bible) {
   const copy = structuredClone(bible);
   if (copy.revision?.integrity) copy.revision.integrity.hash = '';
   return canonicalize(copy);
+}
+
+function approvalBindingPayload(bible) {
+  const copy = structuredClone(bible);
+  if (copy.revision) {
+    copy.revision.approved = false;
+    copy.revision.status = 'draft';
+    copy.revision.approval = null;
+    if (copy.revision.integrity) copy.revision.integrity.hash = '';
+  }
+  return canonicalize(copy);
+}
+
+function computeApprovalBindingHash(bible) {
+  return createHash('sha256').update(JSON.stringify(approvalBindingPayload(bible))).digest('hex');
 }
 
 export function computeRevisionHash(bible) {
@@ -81,6 +96,7 @@ export function createSeriesBible({ name, topic = name, premise = '', audience =
       approved: false,
       createdAt,
       provenance: { source: 'local', generated: false },
+      approval: null,
       integrity: { algorithm: 'sha256', hash: '' },
     },
   };
@@ -124,6 +140,9 @@ export async function validateSeriesBible(input, { root } = {}) {
   const bible = structuredClone(input);
   if (!bible || bible.schemaVersion !== 1) throw new Error('series bible schemaVersion 1 is required.');
   assertSafeId(bible.seriesId, 'seriesId');
+  if (!bible.revision || typeof bible.revision !== 'object') throw new Error('revision metadata is required.');
+  positiveInteger(bible.revision.version, 'revision.version');
+  if (!bible.revision.integrity || bible.revision.integrity.algorithm !== 'sha256' || typeof bible.revision.integrity.hash !== 'string' || !/^[a-f0-9]{64}$/.test(bible.revision.integrity.hash)) throw new Error('revision.integrity must contain algorithm sha256 and a 64-character lowercase hash.');
   positiveInteger(bible.episodes?.length, 'episodes count');
   const ids = new Set();
   for (const group of REFERENCE_GROUPS) {
@@ -143,6 +162,13 @@ export async function validateSeriesBible(input, { root } = {}) {
     episodeIds.add(episode.episodeId); indexes.add(episode.index);
   }
   assertPredecessorGraph(bible.episodes);
+  const isApproved = bible.revision.approved === true || bible.revision.status === 'approved';
+  if (isApproved) {
+    const approval = bible.revision.approval;
+    if (bible.revision.approved !== true || bible.revision.status !== 'approved' || !approval || approval.status !== 'approved' || typeof approval.approvedBy !== 'string' || !approval.approvedBy.trim() || typeof approval.approvedAt !== 'string' || Number.isNaN(Date.parse(approval.approvedAt)) || typeof approval.authorizationId !== 'string' || !approval.authorizationId.trim() || !/^[a-f0-9]{64}$/.test(approval.boundRevisionHash) || approval.boundRevisionHash !== computeApprovalBindingHash(bible)) throw new Error('approved revision requires independently verifiable authorization bound to its content.');
+  } else if (bible.revision.approval?.status === 'approved') {
+    throw new Error('approval metadata cannot claim approved status without an approved revision.');
+  }
   if (root) {
     for (const group of REFERENCE_GROUPS) for (const reference of bible.references[group]) await verifyReference(root, reference, group);
   }
@@ -157,11 +183,67 @@ function json(value) { return `${JSON.stringify(value, null, 2)}\n`; }
 
 async function ensureRoot(root) {
   await mkdir(root, { recursive: true });
-  return realpath(root);
+  const absoluteRoot = path.resolve(root);
+  const actualRoot = await realpath(root);
+  if (actualRoot.toLowerCase() !== absoluteRoot.toLowerCase()) throw new Error('Series root must not be a symlink.');
+  return actualRoot;
 }
 
-export async function writeSeriesRevision(root, bible, { version = bible.revision?.version ?? 1 } = {}) {
+async function readActiveBible(root) {
   await ensureRoot(root);
+  const activePath = path.join(root, 'series-bible.json');
+  await assertPathInsideRoot(root, activePath, 'active bible path');
+  return JSON.parse(await readFile(activePath, 'utf8'));
+}
+
+async function pathExists(target) {
+  try { await access(target); return true; } catch { return false; }
+}
+
+async function atomicCreate(root, target, content, io) {
+  await assertPathInsideRoot(root, target, 'revision path');
+  const temp = `${target}.tmp-${randomUUID()}`;
+  try {
+    await io.writeFile(temp, content, { flag: 'wx' });
+    await io.link(temp, target);
+    await io.rm(temp, { force: true });
+  } catch (error) {
+    await io.rm(temp, { force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+async function atomicReplace(root, target, content, io) {
+  await assertPathInsideRoot(root, target, 'active bible path');
+  const temp = `${target}.tmp-${randomUUID()}`;
+  const backup = `${target}.bak-${randomUUID()}`;
+  let movedOriginal = false;
+  try {
+    await io.writeFile(temp, content, { flag: 'wx' });
+    if (await pathExists(target)) {
+      await io.rename(target, backup);
+      movedOriginal = true;
+    }
+    try {
+      await io.rename(temp, target);
+    } catch (error) {
+      if (movedOriginal) await io.rename(backup, target);
+      throw error;
+    }
+    if (movedOriginal) await io.rm(backup, { force: true });
+  } catch (error) {
+    await io.rm(temp, { force: true }).catch(() => {});
+    if (movedOriginal && await pathExists(backup) && !(await pathExists(target))) await io.rename(backup, target).catch(() => {});
+    throw error;
+  }
+}
+
+export async function writeSeriesRevision(root, bible, { version = bible.revision?.version ?? 1, allowApproved = false, io: injectedIo = {} } = {}) {
+  await ensureRoot(root);
+  const io = { writeFile, link, rename, rm, ...injectedIo };
+  const input = structuredClone(bible);
+  if (!allowApproved && (input.revision?.approved === true || input.revision?.status === 'approved')) throw new Error('approved revisions require the authorized approveSeriesRevision operation.');
+  await validateSeriesBible(input, { root });
   const next = structuredClone(bible);
   next.revision = { ...next.revision, version, integrity: { algorithm: 'sha256', hash: '' } };
   next.revision.integrity.hash = computeRevisionHash(next);
@@ -169,9 +251,26 @@ export async function writeSeriesRevision(root, bible, { version = bible.revisio
   const revisionsDir = path.join(root, 'series-bible.revisions');
   await mkdir(revisionsDir, { recursive: true });
   const revisionPath = path.join(revisionsDir, `revision-${String(version).padStart(2, '0')}.json`);
-  await writeFile(revisionPath, json(next), { flag: 'wx' });
-  await writeFile(path.join(root, 'series-bible.json'), json(next), { flag: 'w' });
+  const activePath = path.join(root, 'series-bible.json');
+  await atomicCreate(root, revisionPath, json(next), io);
+  try {
+    await atomicReplace(root, activePath, json(next), io);
+  } catch (error) {
+    await io.rm(revisionPath, { force: true }).catch(() => {});
+    throw error;
+  }
   return next;
+}
+
+export async function approveSeriesRevision(root, { approvedBy, approvedAt = new Date().toISOString(), authorizationId } = {}) {
+  const current = await readActiveBible(root);
+  await validateSeriesBible(current, { root });
+  if (!approvedBy || !authorizationId) throw new Error('approvedBy and authorizationId are required for approval.');
+  const next = structuredClone(current);
+  next.revision = { ...current.revision, version: current.revision.version + 1, parentVersion: current.revision.version, status: 'approved', approved: true, approval: { status: 'approved', approvedBy, approvedAt, authorizationId, boundRevisionHash: '' }, provenance: { source: 'authorized-manual-approval', generated: false } };
+  next.revision.approval.boundRevisionHash = computeApprovalBindingHash(next);
+  next.revision.integrity.hash = computeRevisionHash(next);
+  return writeSeriesRevision(root, next, { version: next.revision.version, allowApproved: true });
 }
 
 export function diffSeriesBibles(previous, next) {
@@ -182,12 +281,13 @@ export function diffSeriesBibles(previous, next) {
 }
 
 export async function updateSeriesPlanning(root, changes = {}) {
-  const current = JSON.parse(await readFile(path.join(root, 'series-bible.json'), 'utf8'));
+  const current = await readActiveBible(root);
   await validateSeriesBible(current, { root });
   const next = structuredClone(current);
   for (const field of ['premise', 'audience', 'language', 'tone', 'styleAnchor', 'palette', 'narrator', 'references', 'continuity', 'episodes']) if (field in changes) next[field] = changes[field];
   const version = positiveInteger(current.revision.version, 'revision.version') + 1;
-  next.revision = { ...current.revision, version, parentVersion: current.revision.version, status: 'review-required', approved: false, createdAt: new Date().toISOString(), provenance: { source: 'local-update', generated: false } };
+  next.revision = { ...current.revision, version, parentVersion: current.revision.version, status: 'review-required', approved: false, approval: null, createdAt: new Date().toISOString(), provenance: { source: 'local-update', generated: false } };
+  next.revision.integrity.hash = computeRevisionHash(next);
   return writeSeriesRevision(root, next, { version });
 }
 
