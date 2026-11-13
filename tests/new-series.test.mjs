@@ -29,3 +29,17 @@ test('multi-episode CLI refuses to overwrite the original scaffold', async () =>
     await assert.rejects(run(process.execPath, args, { cwd: parent }), /refusing to overwrite|already exists/i);
   } finally { await rm(parent, { recursive: true, force: true }); }
 });
+
+test('legacy positional CLI keeps the original single-episode layout', async () => {
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'stickman-cli-legacy-'));
+  try {
+    await run(process.execPath, [script, 'Legacy Demo'], { cwd: parent });
+    const root = path.join(parent, 'projects', 'legacy-demo');
+    const manifest = JSON.parse(await readFile(path.join(root, 'episode.json'), 'utf8'));
+    assert.equal(manifest.episodeId, 'legacy-demo-episode-01');
+    for (const directory of ['script', 'continuity', 'references/characters', 'references/props', 'references/environments', 'scenes', 'images', 'narration', 'captions', 'exports', 'episodes']) {
+      const { access } = await import('node:fs/promises');
+      await access(path.join(root, directory));
+    }
+  } finally { await rm(parent, { recursive: true, force: true }); }
+});
