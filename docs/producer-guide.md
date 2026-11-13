@@ -21,6 +21,29 @@ available. An unavailable Boords, Flow, or Gemini TTS path throws a safe,
 actionable error and leaves the session unchanged; it never probes the
 provider or switches silently.
 
+The preferences stage also asks for an image-count mode (`recommended` or
+`custom`) and a pacing profile (`reflective`, `cinematic`, or `energetic`).
+Custom counts must be positive integers. `planGuidedImageCount` accepts ordered
+narrative beats and produces a deterministic, offline shot plan with unique
+image slots, stable scene IDs, story-beat IDs, and integer 30fps timing. The
+recommended count uses approximate hold lengths of 4.5 seconds, 3 seconds, and
+2.2 seconds respectively, then adjusts allocation for complexity and emotional
+holds. These are planning heuristics, not a generation command.
+
+When phrase boundaries are supplied, shot cuts snap to those boundaries. If a
+requested custom count cannot fit the available boundaries or would give an
+essential beat no shot, planning fails closed rather than silently merging
+beats. After full TTS timing is available, replan before any storyboard or
+media work and obtain fresh approval; planning never calls Flow, Gemini, or
+Boords and never spends credits.
+
+`applyImageCountPlan` adds optional `planning.imageCount` metadata and
+`scene.storyBeatId`/duration values to a schema-v1 episode manifest. The
+Boords adapter turns each planned scene into one manual-import frame proposal;
+it does not mutate Boords. A changed plan dependency invalidates storyboard
+and downstream session approvals while retaining existing originals and
+receipts.
+
 ## Decisions and resumption
 
 - `goBackGuidedStage` changes the current question without removing approvals.

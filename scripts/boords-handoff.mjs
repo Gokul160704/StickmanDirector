@@ -12,6 +12,7 @@ export function createBoordsHandoff(manifest) {
     topic: manifest.topic,
     frames: (manifest.scenes ?? []).map((scene) => ({
       sceneId: scene.id,
+      ...(scene.storyBeatId !== undefined ? { storyBeatId: scene.storyBeatId } : {}),
       order: scene.order,
       shot: scene.camera ?? 'medium-wide composition',
       action: scene.visualDescription ?? scene.description ?? '',

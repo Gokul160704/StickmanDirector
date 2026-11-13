@@ -9,6 +9,8 @@ import {
   resolveProviderChoice,
   resumeProducerSession,
 } from './producer-contract.mjs';
+import { dependencyHash } from './production-state.mjs';
+import { planImageCount } from './image-count-planner.mjs';
 
 export const GUIDED_QUESTIONS = [
   { id: 'source', stage: 'entry', choices: ['topic', 'script', 'article', 'existing-episode'] },
@@ -18,6 +20,9 @@ export const GUIDED_QUESTIONS = [
   { id: 'language', stage: 'preferences', choices: ['en', 'hi', 'other'] },
   { id: 'aspectRatio', stage: 'preferences', choices: ['16:9', '9:16', '1:1'] },
   { id: 'visualStyle', stage: 'preferences', choices: ['illustrated-stickman', 'minimal', 'storybook'] },
+  { id: 'imageCountMode', stage: 'preferences', choices: ['recommended', 'custom'] },
+  { id: 'pace', stage: 'preferences', choices: ['reflective', 'cinematic', 'energetic'] },
+  { id: 'customImageCount', stage: 'preferences', input: 'positive-integer' },
   { id: 'scriptMode', stage: 'script', choices: ['draft', 'existing-script'] },
   { id: 'referenceMode', stage: 'references', choices: ['new', 'reuse-approved'] },
   { id: 'storyboardMode', stage: 'storyboard', choices: ['manual', 'boords-review'] },
@@ -38,8 +43,14 @@ const questionFor = (id) => GUIDED_QUESTIONS.find((question) => question.id === 
 function requireChoice(id, value) {
   const question = questionFor(id);
   if (!question) throw new Error(`Unknown guided question: ${id}.`);
-  if (!question.choices.includes(value)) throw new Error(`Invalid choice for ${id}: ${value}.`);
+  if (question.input === 'positive-integer') {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) throw new Error(`Invalid value for ${id}; customImageCount must be a positive integer.`);
+  } else if (!question.choices.includes(value)) throw new Error(`Invalid choice for ${id}: ${value}.`);
   return question;
+}
+
+function isQuestionRequired(session, question) {
+  return question.id !== 'customImageCount' || session.answers.imageCountMode === 'custom';
 }
 
 function requireShotId(shotId) {
@@ -63,7 +74,7 @@ export function createGuidedProducer({ episodeId, providerCatalog = DEFAULT_PROV
 }
 
 export function getNextQuestion(session) {
-  const question = GUIDED_QUESTIONS.find((candidate) => candidate.stage === session.stage && session.answers[candidate.id] === undefined);
+  const question = GUIDED_QUESTIONS.find((candidate) => candidate.stage === session.stage && isQuestionRequired(session, candidate) && session.answers[candidate.id] === undefined);
   return question ? structuredClone(question) : null;
 }
 
@@ -76,7 +87,7 @@ export function answerGuidedChoice(session, questionId, value) {
 }
 
 export function advanceGuidedStage(session) {
-  const missing = GUIDED_QUESTIONS.filter((question) => question.stage === session.stage && session.answers[question.id] === undefined);
+  const missing = GUIDED_QUESTIONS.filter((question) => question.stage === session.stage && isQuestionRequired(session, question) && session.answers[question.id] === undefined);
   if (missing.length) throw new Error(`Cannot advance from ${session.stage}; answer ${missing[0].id} first.`);
   const nextStage = STAGES[STAGES.indexOf(session.stage) + 1];
   const next = advanceStage(session, nextStage);
@@ -84,7 +95,7 @@ export function advanceGuidedStage(session) {
 }
 
 export function approveGuidedStage(session, stage) {
-  const missing = GUIDED_QUESTIONS.filter((question) => question.stage === stage && session.answers[question.id] === undefined);
+  const missing = GUIDED_QUESTIONS.filter((question) => question.stage === stage && isQuestionRequired(session, question) && session.answers[question.id] === undefined);
   if (missing.length) throw new Error(`Cannot approve ${stage}; answer ${missing[0].id} first.`);
   return withNextHumanAction(approveStage(session, stage));
 }
@@ -111,6 +122,30 @@ export function saveGuidedProducer(session) {
 export function resumeGuidedProducer(saved) {
   const raw = typeof saved === 'string' ? JSON.parse(saved) : saved;
   return resumeProducerSession(raw);
+}
+
+export function planGuidedImageCount(session, beats, options = {}) {
+  const current = resumeProducerSession(session);
+  const pace = current.answers.pace ?? 'cinematic';
+  const mode = current.answers.imageCountMode ?? 'recommended';
+  const customImageCount = mode === 'custom' ? current.answers.customImageCount : undefined;
+  const dependency = dependencyHash({
+    beats,
+    durationSeconds: options.durationSeconds,
+    narrationDurationSeconds: options.narrationDurationSeconds,
+    pace,
+    mode,
+    customImageCount,
+  });
+  const plan = planImageCount({ ...options, beats, pace, customImageCount });
+  let next = structuredClone(current);
+  if (next.imageCountPlan?.dependencyHash && next.imageCountPlan.dependencyHash !== dependency) {
+    next = invalidateFrom(next, 'storyboard', 'image-count planning inputs changed; storyboard and later approvals require re-review');
+    for (const stage of ['images', 'audio', 'captions', 'rendering', 'QA']) delete next.approvedStages[stage];
+  }
+  next.imageCountPlan = { ...plan, dependencyHash: dependency };
+  next.revision += 1;
+  return next;
 }
 
 export function selectGuidedProvider(session, questionId, providerId, entitlements = session.providerEntitlements) {
@@ -144,6 +179,7 @@ export function manualFallback() {
     'Manual Guided Producer fallback (offline; no provider calls).',
     'Choose one entry: topic, script, article, existing-episode.',
     'Record duration, audience, tone, language, aspect ratio, and visual style.',
+    'Choose recommended or custom still-image count and a reflective, cinematic, or energetic pace.',
     'Record provider choices separately from active entitlement: image, voice, storyboard.',
     'Use Back, Edit, Save, Resume, explicit invalidation, and selected-shot regeneration approval.',
     'Unavailable Boords, Flow, or TTS stays manual and incomplete until a human-approved path is available.',

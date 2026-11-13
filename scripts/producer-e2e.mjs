@@ -29,7 +29,7 @@ async function videoFrameRate(file) {
 function completeOfflineGuidedSession(session) {
   const stages = [
     ['entry', [['source', 'topic']]],
-    ['preferences', [['duration', 'standard'], ['audience', 'general'], ['tone', 'curious'], ['language', 'en'], ['aspectRatio', '16:9'], ['visualStyle', 'illustrated-stickman']]],
+    ['preferences', [['duration', 'standard'], ['audience', 'general'], ['tone', 'curious'], ['language', 'en'], ['aspectRatio', '16:9'], ['visualStyle', 'illustrated-stickman'], ['imageCountMode', 'recommended'], ['pace', 'cinematic']]],
     ['script', [['scriptMode', 'draft']]],
     ['references', [['referenceMode', 'reuse-approved']]],
     ['storyboard', [['storyboardMode', 'manual']]],
