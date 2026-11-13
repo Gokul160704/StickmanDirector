@@ -11,6 +11,7 @@ import {
 } from './producer-contract.mjs';
 import { dependencyHash } from './production-state.mjs';
 import { planImageCount } from './image-count-planner.mjs';
+import { DEFAULT_SAFE_FRAMING_PROFILE, normalizeSafeFramingProfile } from './safe-framing.mjs';
 
 export const GUIDED_QUESTIONS = [
   { id: 'source', stage: 'entry', choices: ['topic', 'script', 'article', 'existing-episode'] },
@@ -65,12 +66,23 @@ function withNextHumanAction(session) {
   return session;
 }
 
-export function createGuidedProducer({ episodeId, providerCatalog = DEFAULT_PROVIDER_CATALOG, providerEntitlements = [] } = {}) {
+export function createGuidedProducer({ episodeId, providerCatalog = DEFAULT_PROVIDER_CATALOG, providerEntitlements = [], safeFramingProfile = DEFAULT_SAFE_FRAMING_PROFILE } = {}) {
   if (!Array.isArray(providerEntitlements)) throw new Error('providerEntitlements must be an array.');
   const session = createProducerSession({ episodeId, providerCatalog });
   session.providerEntitlements = structuredClone(providerEntitlements);
   session.regenerationRequests = [];
+  session.safeFramingProfile = normalizeSafeFramingProfile(safeFramingProfile);
   return withNextHumanAction(session);
+}
+
+export function setGuidedSafeFramingProfile(session, profileInput) {
+  const currentSession = resumeProducerSession(session);
+  const current = normalizeSafeFramingProfile(currentSession.safeFramingProfile ?? DEFAULT_SAFE_FRAMING_PROFILE);
+  const nextProfile = normalizeSafeFramingProfile(profileInput);
+  if (current.hash === nextProfile.hash) return withNextHumanAction(currentSession);
+  const next = invalidateFrom(currentSession, 'storyboard', 'safe-framing-profile-changed');
+  next.safeFramingProfile = nextProfile;
+  return withNextHumanAction(next);
 }
 
 export function getNextQuestion(session) {

@@ -90,3 +90,21 @@ and verifies recovery, one-shot retry/read-back, dependency invalidation, and
 missing-asset failures. It never calls Flow, Gemini, Boords, or a network
 service. Its `release.approved` result remains false until a separate human
 creative decision is supplied; passing this suite is not production approval.
+
+## Safe framing for still prompts
+
+New prompt packs use the deterministic `safe-framing-v1` profile: 4% left/top,
+8% right and 10% bottom margins, with a protected normalized content area. The
+shared composer applies the same guidance to scene and character/prop/environment
+reference prompts while retaining the approved story and continuity text. The
+prompt pack records the profile hash so an approval can bind to the exact
+framing instructions.
+
+The margins are composition heuristics. They do not predict a provider watermark
+position or guarantee where a model places story elements. The pure geometry
+preview calculates a centered 16:9 region, reports caller-supplied landmark
+boxes that fall outside the protected region, and never edits pixels. Landmark
+boxes are supplied data; this preview does not detect faces or objects. Any
+profile change invalidates storyboard and later approvals in a saved guided
+session. Historical sessions and manifests without framing fields remain valid.
+Watermark removal, masking, concealment, or destructive cropping is not supported.

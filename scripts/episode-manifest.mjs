@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { normalizeSafeFramingProfile } from './safe-framing.mjs';
 
 const RESOLUTION = /^\d+x\d+$/;
 const ASPECT_RATIO = /^\d+:\d+$/;
@@ -90,6 +91,7 @@ export function validateEpisodeManifest(input, { root = process.cwd() } = {}) {
     requiredString(imageCount.version, 'planning.imageCount.version');
     if (imageCount.dependencyHash !== undefined) requiredString(imageCount.dependencyHash, 'planning.imageCount.dependencyHash');
   }
+  const safeFraming = input.safeFraming === undefined ? undefined : normalizeSafeFramingProfile(input.safeFraming);
   if (input.scenes !== undefined && !Array.isArray(input.scenes)) fail('scenes must be an array.');
   const production = input.production ?? {};
   if (production.stage !== undefined && !STAGES.includes(production.stage)) fail(`production.stage must be one of: ${STAGES.join(', ')}.`);
@@ -104,6 +106,14 @@ export function validateEpisodeManifest(input, { root = process.cwd() } = {}) {
     if (!Number.isInteger(order) || order < 1) fail(`scenes[${index}].order must be a positive integer.`);
     const image = assertSafeRelativeAssetPath(scene.image, `scenes[${index}].image`);
     const result = { ...scene, id, order, image };
+    if (scene.safeFraming !== undefined) result.safeFraming = normalizeSafeFramingProfile(scene.safeFraming);
+    if (scene.imageDimensions !== undefined) {
+      const dimensions = scene.imageDimensions;
+      if (!dimensions || typeof dimensions !== 'object' || Array.isArray(dimensions)) fail(`scenes[${index}].imageDimensions must be an object.`);
+      positiveNumber(dimensions.width, `scenes[${index}].imageDimensions.width`);
+      positiveNumber(dimensions.height, `scenes[${index}].imageDimensions.height`);
+      result.imageDimensions = { width: dimensions.width, height: dimensions.height };
+    }
     if (scene.storyBeatId !== undefined) result.storyBeatId = requiredString(scene.storyBeatId, `scenes[${index}].storyBeatId`);
     if (scene.durationSeconds !== undefined) result.durationSeconds = positiveNumber(scene.durationSeconds, `scenes[${index}].durationSeconds`);
     if (scene.narration !== undefined) result.narration = requiredString(scene.narration, `scenes[${index}].narration`);
@@ -122,6 +132,7 @@ export function validateEpisodeManifest(input, { root = process.cwd() } = {}) {
     description: input.description.trim(), targetAudience: input.targetAudience.trim(),
     output: { ...output, resolution: output.resolution.trim(), aspectRatio: output.aspectRatio.trim() },
     references: { ...references, visualStyle: references.visualStyle ?? '' },
+    ...(safeFraming ? { safeFraming } : {}),
     audio: { ...audio }, captions: { timingSource: 'manual', ...captions }, editing: { ...editing }, planning: { ...planning }, production: { stage: 'research', ...production }, scenes,
   };
 }
