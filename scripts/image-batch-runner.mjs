@@ -47,6 +47,13 @@ function contentHash(output) {
   if (typeof output.contentHash === 'string' && /^sha256:[a-f0-9]{64}$/.test(output.contentHash)) return output.contentHash;
   throw new Error('Provider output requires bytes or a verified SHA-256 contentHash.');
 }
+function outputStem(file) { return file.replace(/\.(?:png|jpe?g|webp)$/i, ''); }
+function outputVariants(file) { return [file, `${outputStem(file)}.png`, `${outputStem(file)}.jpg`, `${outputStem(file)}.jpeg`, `${outputStem(file)}.webp`]; }
+async function writeBytesAtomically(file, bytes) {
+  const temporary = `${file}.tmp-${process.pid}-${randomUUID()}`;
+  try { await writeFile(temporary, bytes, { flag: 'wx' }); await rename(temporary, file); }
+  finally { await rm(temporary, { force: true }); }
+}
 
 export function createBatchRunner({ plan, referenceBundle, referenceRegistry, adapter, checkpointPath, outputRoot, concurrency = 2, budget = {} } = {}) {
   if (!plan?.items?.length) throw new Error('A non-empty batch plan is required.');
@@ -96,7 +103,7 @@ export function createBatchRunner({ plan, referenceBundle, referenceRegistry, ad
       return [item.id, safeNumber(value, `quote for ${item.id}`)];
     }));
     if (candidates.reduce((sum, item) => sum + reservations.get(item.id), 0) + state.spent > maxCost) { state.status = 'paused-budget'; await persist(); throw new Error('Per-item batch reservations exceed the approved budget; no provider request was dispatched.'); }
-    if (quote?.outputPaths) for (const item of candidates) { const declared = quote.outputPaths[item.id]; if (declared) { const file = safeOutputPath(root, { path: declared }); await assertPathInsideRoot(root, file, 'Declared provider output path'); if (await exists(file)) throw new Error('Declared provider output already exists; dispatch refused.'); } }
+    if (quote?.outputPaths) for (const item of candidates) { const declared = quote.outputPaths[item.id]; if (declared) { for (const variant of outputVariants(declared)) { const file = safeOutputPath(root, { path: variant }); await assertPathInsideRoot(root, file, 'Declared provider output path'); if (await exists(file)) throw new Error('Declared provider output already exists; dispatch refused.'); } } }
     let cursor = 0; let firstError = null;
     const worker = async () => { while (!firstError) { const item = candidates[cursor++]; if (!item) return; try { await executeItem(item, reservations.get(item.id), outputPaths[item.id]); } catch (error) { firstError ??= error; return; } } };
     await Promise.all(Array.from({ length: Math.min(concurrency, candidates.length) }, () => worker()));
@@ -108,21 +115,24 @@ export function createBatchRunner({ plan, referenceBundle, referenceRegistry, ad
     const attemptId = `${item.id}:${(item.attempts?.length ?? 0) + 1}`;
     if (state.spent + state.reserved + reservation > maxCost) throw new Error('Approved budget reservation is exhausted; provider dispatch refused.');
     state.reserved += reservation; item.reservedCost = reservation; item.status = 'running'; item.attempts ??= []; item.attempts.push({ attemptId, startedAt: now(), status: 'running', requestHash: item.requestHash }); await persist();
+    let persistenceAttempted = false;
     try {
       const result = await adapter.execute({ item: clone(item), referenceBundle, attemptId });
       const cost = safeNumber(result?.cost ?? 0, 'provider cost'); if (cost > reservation || state.spent + cost > maxCost) { const error = new Error('Provider result exceeds its reserved approved budget.'); error.unknownOutcome = true; throw error; }
       const output = result.output ? { ...result.output, contentHash: contentHash(result.output) } : null; if (!output) throw new Error('Provider result must include an output.');
       if (output.path) {
-        if (!declaredOutputPath || output.path !== declaredOutputPath) throw new Error('Provider output path must be declared and reserved during prepare.');
+        if (!declaredOutputPath || outputStem(output.path) !== outputStem(declaredOutputPath) || !/\.(?:png|jpe?g|webp)$/i.test(output.path)) throw new Error('Provider output path must be declared and reserved during prepare.');
         const file = safeOutputPath(root, output); await assertPathInsideRoot(root, file, 'Provider output path');
-        if (await exists(file)) { const actual = bytesHash(await readFile(file)); if (actual !== output.contentHash) throw new Error('Provider output file bytes do not match its contentHash.'); }
-        else if (output.bytes === undefined) throw new Error('Provider output file is missing and no returned bytes are available for verification.');
-        else { await writeFile(file, output.bytes, { flag: 'wx' }); const actual = bytesHash(await readFile(file)); if (actual !== output.contentHash) throw new Error('Materialized provider output bytes do not match its contentHash.'); }
+        if (await exists(file)) { const stat = await lstat(file); if (stat.isSymbolicLink()) throw new Error('Output path cannot be a symlink.'); const actual = bytesHash(await readFile(file)); if (actual !== output.contentHash) throw new Error('Provider output file bytes do not match its contentHash.'); }
+        else if (output.bytes === undefined) { persistenceAttempted = true; throw new Error('Provider output file is missing and no returned bytes are available for verification.'); }
+        else { persistenceAttempted = true; await writeBytesAtomically(file, output.bytes); const actual = bytesHash(await readFile(file)); if (actual !== output.contentHash) throw new Error('Materialized provider output bytes do not match its contentHash.'); }
         try { const stat = await lstat(file); if (stat.isSymbolicLink()) throw new Error('Output path cannot be a symlink.'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+        const { bytes: _bytes, ...receiptOutput } = output;
+        persistenceAttempted = true; await atomicWrite(`${file}.receipt.json`, { schemaVersion: 1, receipt: result.receipt ?? null, output: receiptOutput, persistedAt: now() });
       }
       item.status = 'needs-review'; item.output = sanitize(output); item.receipt = sanitize(result.receipt ?? null); item.cost = cost; item.provenance = sanitize(result.provenance ?? {}); item.attempts[item.attempts.length - 1] = { ...item.attempts.at(-1), attemptId, status: 'succeeded', finishedAt: now(), cost, receipt: item.receipt }; state.spent += cost; state.reserved = Math.max(0, state.reserved - reservation); item.reservedCost = 0; await persist();
     } catch (error) {
-      const unknown = error?.unknownOutcome === true;
+      const unknown = error?.unknownOutcome === true || persistenceAttempted;
       item.status = unknown ? 'unknown' : 'failed'; item.error = String(error.message || error); item.attempts[item.attempts.length - 1] = { ...item.attempts.at(-1), status: item.status, finishedAt: now(), error: item.error }; if (!unknown) { state.reserved = Math.max(0, state.reserved - reservation); item.reservedCost = 0; } await persist(); if (!unknown) throw error;
     }
   }

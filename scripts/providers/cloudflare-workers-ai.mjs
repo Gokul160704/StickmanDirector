@@ -4,6 +4,8 @@ import path from 'node:path';
 import { assertFrozenReferenceBundle } from '../continuity-refs.mjs';
 import { assertPathInsideRoot } from '../path-safety.mjs';
 import { hashContract } from '../stage-contracts.mjs';
+import { normalizeProviderImageResponse } from '../provider-response-normalization.mjs';
+import { assertCloudflarePreflight, classifyCloudflareFailure } from '../provider-usage-reconciliation.mjs';
 
 export const CLOUDFLARE_PROVIDER_ID = 'cloudflare-workers-ai';
 export const CLOUDFLARE_FLUX_KLEIN_4B = '@cf/black-forest-labs/flux-2-klein-4b';
@@ -69,10 +71,9 @@ async function readReferenceInputs(bundle, projectRoot) {
   return inputs;
 }
 
-export function decodeCloudflareImage(response) {
-  if (response?.image && typeof response.image === 'string') return Buffer.from(response.image, 'base64');
-  if (response?.bytes) return Buffer.from(response.bytes);
-  throw new Error('Cloudflare live response did not include its documented base64 image field.');
+export async function decodeCloudflareImage(response, { model = CLOUDFLARE_FLUX_KLEIN_4B, expectedDimensions } = {}) {
+  const normalized = await normalizeProviderImageResponse({ model, response, expectedDimensions });
+  return normalized.bytes;
 }
 export function assertCloudflareImageBytes(bytes, expected) {
   const png = bytes.length >= 24 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
@@ -117,7 +118,8 @@ export function createCloudflareWorkersAiAdapter({ mode = 'mock', transport, pro
     if (mode === 'live' && evidence.live !== true) throw new Error('Live Cloudflare execution requires explicit live authorization.');
     if (mode === 'live' && (!process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.CLOUDFLARE_API_TOKEN)) throw new Error('Live Cloudflare execution requires scoped account credentials.');
     if (!evidence.quota || !Number.isFinite(evidence.quota.remainingNeurons) || evidence.quota.remainingNeurons < prepared.quote.totalCost) throw new Error('Verified remaining Cloudflare quota is below the quoted batch total.');
-    authorization = { approvalId: evidence.approvalId, actor: evidence.actor, approvedAt: evidence.approvedAt, requestHash: evidence.requestHash, quoteHash: evidence.quoteHash, maxCost: evidence.maxCost, quota: { remainingNeurons: evidence.quota.remainingNeurons, evidenceId: evidence.quota.evidenceId ?? null }, spent: 0, live: evidence.live === true, completedItems: new Set() };
+    if (mode === 'live') assertCloudflarePreflight({ estimatedNeurons: prepared.quote.totalCost, remainingNeurons: evidence.quota.remainingNeurons, paidOverageAllowed: evidence.paidOverageAllowed, approvalId: evidence.approvalId, quoteHash: evidence.quoteHash });
+    authorization = { approvalId: evidence.approvalId, actor: evidence.actor, approvedAt: evidence.approvedAt, requestHash: evidence.requestHash, quoteHash: evidence.quoteHash, maxCost: evidence.maxCost, quota: { remainingNeurons: evidence.quota.remainingNeurons, evidenceId: evidence.quota.evidenceId ?? null }, paidOverageAllowed: evidence.paidOverageAllowed === true, spent: 0, live: evidence.live === true, completedItems: new Set() };
     return { ...clone(authorization), provider: CLOUDFLARE_PROVIDER_ID, credentialsPersisted: false };
   }
 
@@ -127,7 +129,7 @@ export function createCloudflareWorkersAiAdapter({ mode = 'mock', transport, pro
     if (authorization.completedItems.has(item.id)) throw new Error('Cloudflare item already has a completed provider attempt; reconcile before repeating it.');
     const cost = prepared.quote.itemCosts[item.id];
     if (authorization.spent + cost > authorization.maxCost || authorization.spent + cost > authorization.quota.remainingNeurons) throw new Error('Cloudflare authorization budget or remaining quota is exhausted.');
-    const capability = prepared.quote.capability; const { width, height } = prepared.quote.dimensions;
+    const capability = prepared.quote.capability; const { width, height } = prepared.quote.dimensions; let outputPath = prepared.quote.outputPaths[item.id]; let outputMetadata = null; let usageStatus = 'reported'; let usageWarning = null;
     let bytes = `MOCK-CLOUDFLARE-IMAGE:${hash({ itemId: item.id, model: item.model, refs: item.referenceIds, seed: item.requestedSeed })}`;
     let providerReceipt = { provider: CLOUDFLARE_PROVIDER_ID, requestId: item.id, attemptId, mode: 'mock' };
     let actualCost = cost;
@@ -139,13 +141,15 @@ export function createCloudflareWorkersAiAdapter({ mode = 'mock', transport, pro
       referenceInputs.forEach((input, index) => formData.append(`input_image_${index}`, new Blob([input.bytes], { type: 'application/octet-stream' }), `${input.id}.bin`));
       let response;
       try { response = await transport({ accountId: process.env.CLOUDFLARE_ACCOUNT_ID, token: process.env.CLOUDFLARE_API_TOKEN, model: item.model, formData }); }
-      catch (error) { const safe = String(error?.message ?? error).replaceAll(process.env.CLOUDFLARE_API_TOKEN, '[REDACTED]').replaceAll(process.env.CLOUDFLARE_ACCOUNT_ID, '[REDACTED]'); const ambiguous = new Error(safe); ambiguous.unknownOutcome = true; throw ambiguous; }
-      bytes = decodeCloudflareImage(response); assertCloudflareImageBytes(bytes, { width, height }); actualCost = finite(response.usage?.neurons, 'Cloudflare actual neuron usage');
+      catch (error) { const safe = String(error?.message ?? error).replaceAll(process.env.CLOUDFLARE_API_TOKEN, '[REDACTED]').replaceAll(process.env.CLOUDFLARE_ACCOUNT_ID, '[REDACTED]'); const classification = classifyCloudflareFailure(error); const ambiguous = new Error(safe); ambiguous.classification = classification.classification; ambiguous.unknownOutcome = classification.unknownOutcome; throw ambiguous; }
+      const normalized = await normalizeProviderImageResponse({ model: item.model, response, expectedDimensions: { width, height } }); bytes = normalized.bytes;
+      const usageReported = Number.isFinite(response?.usage?.neurons); actualCost = usageReported ? finite(response.usage.neurons, 'Cloudflare actual neuron usage') : cost;
       if (actualCost > cost || authorization.spent + actualCost > authorization.maxCost || authorization.spent + actualCost > authorization.quota.remainingNeurons) { const ambiguous = new Error('Cloudflare actual usage exceeded the approved quote or quota.'); ambiguous.unknownOutcome = true; throw ambiguous; }
-      providerReceipt = { provider: CLOUDFLARE_PROVIDER_ID, requestId: response.requestId ?? item.id, attemptId, mode: 'live', usage: { neurons: actualCost } };
+      usageStatus = usageReported ? 'reported' : 'unreported'; usageWarning = usageReported ? null : 'Cloudflare did not report per-request neuron usage; quoted cost is provisional pending dashboard reconciliation.'; outputPath = `${path.basename(prepared.quote.outputPaths[item.id], path.extname(prepared.quote.outputPaths[item.id]))}${normalized.extension}`; outputMetadata = { contentHash: normalized.contentHash, mimeType: normalized.mimeType, extension: normalized.extension, dimensions: normalized.dimensions };
+      providerReceipt = { provider: CLOUDFLARE_PROVIDER_ID, requestId: response.requestId ?? item.id, attemptId, mode: 'live', usage: { neurons: usageReported ? actualCost : null, estimatedNeurons: usageReported ? undefined : cost, status: usageReported ? 'reported' : 'unreported' }, output: outputMetadata };
     }
     authorization.spent += actualCost; authorization.completedItems.add(item.id);
-    return { cost: actualCost, output: { path: prepared.quote.outputPaths[item.id], bytes }, receipt: providerReceipt, provenance: { provider: CLOUDFLARE_PROVIDER_ID, model: item.model, modelRevision: 'official-capability-2026-01-15', width, height, inferenceSteps: capability.inferenceSteps, seed: item.requestedSeed ?? null, referenceIds: [...item.referenceIds], referenceHashes: referenceBundle.references.map((reference) => reference.contentHash), referenceBundleHash: referenceBundle.bundleHash, license: referenceBundle.references.map((reference) => reference.metadata?.license ?? 'unspecified'), generatedAt: now(), reviewStatus: 'needs-review', mode } };
+    return { cost: actualCost, usageStatus, usageWarning, output: { path: outputPath, bytes, ...(outputMetadata ?? {}) }, receipt: providerReceipt, provenance: { provider: CLOUDFLARE_PROVIDER_ID, model: item.model, modelRevision: 'official-capability-2026-01-15', width, height, ...(outputMetadata ?? {}), inferenceSteps: capability.inferenceSteps, seed: item.requestedSeed ?? null, referenceIds: [...item.referenceIds], referenceHashes: referenceBundle.references.map((reference) => reference.contentHash), referenceBundleHash: referenceBundle.bundleHash, license: referenceBundle.references.map((reference) => reference.metadata?.license ?? 'unspecified'), generatedAt: now(), reviewStatus: 'needs-review', usageStatus, usageWarning, mode } };
   }
 
   return { providerId: CLOUDFLARE_PROVIDER_ID, stageId: 'image-generation', describeCapabilities, prepare, authorize, execute, getSecurityState: () => ({ mode, credentialsPersisted: false, liveAuthorized: authorization?.live === true }) };

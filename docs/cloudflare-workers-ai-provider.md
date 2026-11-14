@@ -43,11 +43,20 @@ ambiguous transport errors.
 
 The live transport receives the approved prompt text and a multipart `FormData`
 payload containing `input_image_0` through `input_image_3`, read from the
-hash-verified local reference files. It accepts Cloudflare's base64 `image`
-response, validates the raster signature and approved PNG dimensions, and
-records actual reported neuron usage. A transport failure after dispatch is
-classified as an unknown outcome, requiring receipt reconciliation before a
-retry.
+hash-verified local reference files. Responses are normalized through
+`scripts/provider-response-normalization.mjs` using an explicit model route:
+FLUX JSON/base64, SDXL and Leonardo binary streams, and supported MCP image
+content blocks. The normalizer preserves original bytes, derives PNG/JPEG/WebP
+format from magic bytes, verifies raster dimensions and SHA-256, and rejects
+empty, truncated, unknown, or ambiguous payloads. The batch runner writes the
+verified bytes through a temporary file and rename, refuses collisions, and
+writes a sidecar receipt without embedding image base64.
+
+Usage is recorded as `reported` only when the provider returns per-request
+neurons. Missing usage is `unreported`/provisional, while an aggregate
+dashboard total is `unknown` for per-image attribution; neither is silently
+converted to zero. A transport failure after dispatch, failed persistence, or
+missing receipt is an unknown outcome requiring reconciliation before retry.
 
 The adapter fails closed for unsupported models, more than four references,
 missing reference dimensions or current-byte verification, reference images at
@@ -57,6 +66,10 @@ provider/model identity. The runner materializes returned bytes exclusively at
 the declared path and verifies the written hash. Mock outputs remain
 `needs-review`; no generated image is accepted or published automatically.
 Flow watermark and provenance rules are unchanged.
+
+Live approval must also explicitly set `paidOverageAllowed: false` and bind a
+valid quote hash, approval ID, and verified remaining quota. A `$0.00 per-step`
+catalog value does not override the account's daily neuron limit.
 
 ## Verification classification
 
