@@ -24,7 +24,7 @@ Copies are the portable installation method. Copy `agent/`, `.opencode/agents/`,
 | Harness | Discovery and invocation | Boundary |
 | --- | --- | --- |
 | Codex | Existing root/nested `AGENTS.md` discovery plus an explicit prompt or skill invocation that names `agent/SKILL.md` and a role. | No repository-native subagent wrapper format is established here; do not claim one. |
-| OpenCode | `.opencode/agents/<name>.md` wrappers use supported Markdown frontmatter; the director wrapper selects `mode: subagent`. | Availability, model, permissions, and exact CLI flags depend on the installed OpenCode version/configuration. |
+| OpenCode | `.opencode/agents/<name>.md` wrappers use supported Markdown frontmatter and intentionally use `mode: primary` for owner-controlled manual invocation. | Availability, model, permissions, and exact CLI flags depend on the installed OpenCode version/configuration; these profiles do not authorize child-agent dispatch. |
 | Qoder | Project `AGENTS.md` and `.qoder/rules/` provide contextual memory. CLI supports interactive, one-shot, JSON, resume, worktree, and permission-mode usage where installed. | Context is not hard enforcement; strict blocking requires Qoder permissions/hooks. |
 
 Tool versions and discovery rules can drift; treat this as a version drift caveat. Recheck the installed harness documentation and adjust only the thin wrapper when behavior changes; keep policy in `agent/SKILL.md`.

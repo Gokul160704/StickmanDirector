@@ -64,7 +64,7 @@ test('every harness overlay selects a canonical role without copying policy', ()
     assert.equal(existsSync(resolve(root, relativePath)), true, relativePath);
     const content = read(relativePath);
     assert.match(content, /agent\/SKILL\.md/);
-    assert.match(content, new RegExp(`director-orchestrator|${role}`));
+    assert.match(content, /director-orchestrator|reviewer/);
     assert.doesNotMatch(content, /offline-plan|still-image-only|provider calls|pinned references|provenance|approval gates/i);
   }
 });
@@ -75,11 +75,30 @@ test('harness overlays state truthful capability boundaries', () => {
   assert.match(codex, /no .*native.*subagent|does not establish.*subagent/i);
 
   const opencode = read('.opencode/agents/stickman-director.md');
-  assert.match(opencode, /^mode:\s*subagent$/m);
+  assert.match(opencode, /^mode:\s*primary$/m);
+  assert.match(opencode, /Manual profile only/i);
 
   const qoder = read('agent/harnesses/qoder.md');
   assert.match(qoder, /contextual/i);
   assert.match(qoder, /permissions|hooks/i);
+  assert.match(read('.qoder/rules/stickman-director.md'), /not an automatic role selection/i);
+  assert.match(read('.qoder/rules/stickman-reviewer.md'), /not an automatic role selection/i);
+});
+
+test('role selectors map exactly to their named canonical sections', () => {
+  const expected = new Map([
+    ['agent/harnesses/codex.md', 'director-orchestrator'],
+    ['.opencode/agents/stickman-director.md', 'director-orchestrator'],
+    ['.opencode/agents/stickman-reviewer.md', 'reviewer'],
+    ['.qoder/rules/stickman-director.md', 'director-orchestrator'],
+    ['.qoder/rules/stickman-reviewer.md', 'reviewer'],
+  ]);
+  for (const [relativePath, role] of expected) {
+    const content = read(relativePath);
+    assert.match(content, new RegExp(role));
+    const otherRole = role === 'reviewer' ? 'director-orchestrator' : 'reviewer';
+    assert.doesNotMatch(content, new RegExp(`select(?:s)?[^\\n]*${otherRole}`, 'i'));
+  }
 });
 
 test('portable-agent documentation covers installation, invocation, and opt-in integrations', () => {
