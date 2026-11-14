@@ -1,6 +1,6 @@
 # Series project template
 
-Copy this structure when starting a new production. The `new-series.mjs` utility creates the same local scaffold.
+Copy this structure when starting a new production. The `new-series.mjs` utility creates the same local scaffold. It is provider-neutral: Google Flow is the default still provider, while Cloudflare Workers AI and suitably licensed manual imports require separate explicit approval and never act as silent fallbacks.
 
 - `script.md`: current approved script
 - `continuity.md`: recurring character, prop, location, and state notes
@@ -12,11 +12,16 @@ Copy this structure when starting a new production. The `new-series.mjs` utility
 - `references/characters/`, `references/props/`: approved continuity references
 - `references/environments/`: approved environment references
 - `scenes/`: scene definitions, prompts, and review notes
-- `images/`: approved full-frame still assets referenced by `episode.json`
+- `images/`: approved full-frame 16:9 still assets from the selected provider, referenced by `episode.json`
 - `captions/`: caption text and timing
 - `exports/`: local renders
 
 The parent `projects/` directory is ignored by Git. Keep credentials and signed links out of all project files.
+
+Freeze and record the SHA-256 reference bundle, per-image provenance, provider/model,
+receipt, review status, and any reapproval required by changed dependencies before
+rendering. Preserve original provider outputs and visible watermarks; this scaffold
+does not support watermark removal or concealment.
 
 The canonical renderer reads `episode.json`; older projects can keep using the legacy
 `node scripts/render-episode.mjs <projectDir> <part>` command while they are migrated.

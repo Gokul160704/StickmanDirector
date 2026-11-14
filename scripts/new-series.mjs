@@ -44,7 +44,7 @@ const dirs = [
 await mkdir(root, { recursive: true });
 for (const dir of dirs) await mkdir(path.join(root, dir), { recursive: true });
 const files = {
-  'README.md': `# ${title}\n\nLocal series workspace. Keep this folder current; it is ignored by Git by default.\n\n## Production state\n- Stage: development\n- Source storyboard: Boords\n- Visual tool: configured GTAI-1 Google Flow MCP\n- Aspect ratio: 16:9\n- Motion: still-image assembly only; no Flow video clips required\n`,
+  'README.md': `# ${title}\n\nLocal series workspace. Keep this folder current; it is ignored by Git by default.\n\n## Production state\n- Stage: development\n- Source storyboard: Boords\n- Visual inputs: approved provider-neutral 16:9 stills\n- Default visual tool: configured GTAI-1 Google Flow MCP\n- Alternatives: separately authorized Cloudflare Workers AI or suitably licensed manual imports; no silent fallback\n- Continuity: freeze and record the SHA-256 reference bundle before each batch\n- Aspect ratio: 16:9\n- Motion: still-image assembly only; no Flow video clips required\n- Approval: provider quote/consent, per-image review, creative acceptance, and publication remain separate gates\n`,
   'episode.json': JSON.stringify({
     schemaVersion: 1,
     episodeId: `${slug}-episode-01`,

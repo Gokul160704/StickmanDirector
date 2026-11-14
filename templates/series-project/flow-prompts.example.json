@@ -1,5 +1,7 @@
 {
   "series": "Series title",
+  "provider": "flow",
+  "note": "Flow-specific prompt handoff; provider selection, batch consent, provenance, and publication gates are defined by the provider-neutral contracts.",
   "aspectRatio": "16:9",
   "styleAnchor": "Reusable visual style description. Keep text out of generated art and preserve the caption-safe area.",
   "characterAnchors": [

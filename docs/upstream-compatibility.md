@@ -20,7 +20,7 @@ This repository uses a project-local `episode.json` profile and `scripts/render-
 It does not import or modify upstream files. Upstream Autopilot Manifest v1 is built
 around style-specific layers, authored local motion/SFX, and a `project.json` runtime;
 its completion gates require meaningful picture motion. The approved StickmanDirector
-contract here instead requires Google Flow still images only, variable-length full-frame
+contract here instead requires reviewed, approved full-frame stills from a supported provider (Flow by default, with separately authorized Cloudflare or suitably licensed manual imports), variable-length full-frame
 scenes, narration-driven FFmpeg assembly, semantic captions, and a 1080p MP4. Aliasing
 the upstream runtime would therefore misrepresent static stills as satisfying motion
 evidence and would introduce a second incompatible manifest.
