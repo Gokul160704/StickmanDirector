@@ -13,6 +13,7 @@ export const NARRATIVE_PARTS = [
 
 const CLAIM_STATUSES = new Set(['VERIFIED', 'CONFLICTING', 'REQUIRES VERIFICATION']);
 const NARRATION_TYPES = new Set(['FACT', 'ANALYSIS', 'OPINION']);
+const SOURCE_STATUSES = new Set(['VERIFIED', 'CONFLICTING', 'REQUIRES VERIFICATION']);
 
 function clone(value) { return structuredClone(value); }
 function required(value, name) {
@@ -24,14 +25,50 @@ function hash(value) {
 }
 function sourceMap(pkg) { return new Map(pkg.sources.map((source) => [source.id, source])); }
 function claimMap(pkg) { return new Map(pkg.claims.map((claim) => [claim.id, claim])); }
+function dependencyValue(pkg) {
+  return {
+    revision: pkg.revision,
+    title: pkg.title,
+    subject: pkg.subject,
+    sources: pkg.sources,
+    claims: pkg.claims,
+    episodes: pkg.episodes,
+  };
+}
+function assertUniqueIds(items, label) {
+  const ids = new Set();
+  for (const item of items) {
+    required(item?.id, `${label} ID`);
+    if (ids.has(item.id)) throw new Error(`${label} IDs must be unique: ${item.id}.`);
+    ids.add(item.id);
+  }
+}
 
-function assertSourceLinks(pkg) {
+function assertSourceLinks(pkg, { allowUnresolved = false } = {}) {
+  assertUniqueIds(pkg.sources, 'Source');
+  assertUniqueIds(pkg.claims, 'Claim');
   const sources = sourceMap(pkg);
+  for (const source of pkg.sources) {
+    try {
+      const url = new URL(source.url);
+      if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
+    } catch {
+      throw new Error(`Source ${source.id} requires a valid HTTP(S) URL.`);
+    }
+    required(source.publisher, `Source ${source.id} publisher`);
+    required(source.accessedAt, `Source ${source.id} accessedAt`);
+    required(source.supportedClaim, `Source ${source.id} supportedClaim`);
+    required(source.evidenceQuality, `Source ${source.id} evidenceQuality`);
+    if (!SOURCE_STATUSES.has(source.status)) throw new Error(`Source ${source.id} has an invalid status.`);
+    if (!source.publicationDate && !requiredOrNull(source.dateRationale)) {
+      throw new Error(`Source ${source.id} requires a date rationale when publicationDate is unavailable.`);
+    }
+  }
   for (const claim of pkg.claims) {
     if (!CLAIM_STATUSES.has(claim.status)) throw new Error(`Claim ${claim.id} has an invalid status.`);
     if (!Array.isArray(claim.sourceIds) || claim.sourceIds.length === 0) throw new Error(`Claim ${claim.id} requires source IDs.`);
     for (const sourceId of claim.sourceIds) if (!sources.has(sourceId)) throw new Error(`Claim ${claim.id} references missing source ${sourceId}.`);
-    if (claim.status === 'CONFLICTING') throw new Error(`Claim ${claim.id} is CONFLICTING and cannot be approved.`);
+    if (claim.status === 'CONFLICTING' && !allowUnresolved) throw new Error(`Claim ${claim.id} is CONFLICTING and cannot be approved.`);
   }
 }
 
@@ -44,11 +81,15 @@ function assertEpisodes(pkg, { allowUnresolved = false } = {}) {
     for (const segment of episode.segments) {
       required(segment.narration, `${episode.id} ${segment.part} narration`);
       if (!Array.isArray(segment.evidence)) throw new Error(`${episode.id} ${segment.part} evidence must be an array.`);
+      if (segment.evidence.length === 0) throw new Error(`${episode.id} ${segment.part} requires source evidence.`);
       for (const claimId of segment.evidence) if (!claims.has(claimId)) throw new Error(`${episode.id} ${segment.part} references missing claim ${claimId}.`);
     }
-    for (const narration of episode.narration ?? []) {
+    if (!Array.isArray(episode.narration) || episode.narration.length === 0) throw new Error(`Episode ${episode.id} requires full narration.`);
+    for (const narration of episode.narration) {
+      required(narration.text, `Narration ${narration.id} text`);
       if (!NARRATION_TYPES.has(narration.type)) throw new Error(`Narration ${narration.id} must be FACT, ANALYSIS, or OPINION.`);
       if (!Array.isArray(narration.claimIds)) throw new Error(`Narration ${narration.id} requires claim IDs.`);
+      if (narration.type === 'FACT' && narration.claimIds.length === 0) throw new Error(`FACT narration ${narration.id} requires claim lineage.`);
       for (const claimId of narration.claimIds) {
         const claim = claims.get(claimId);
         if (!claim) throw new Error(`Narration ${narration.id} references missing claim ${claimId}.`);
@@ -84,8 +125,10 @@ export function validateDocumentaryPackage(pkg, { allowUnresolved = false } = {}
   if (!pkg || pkg.mode !== 'documentary') throw new Error('Package mode must be documentary.');
   validateMetadata(pkg);
   if (!Array.isArray(pkg.sources) || !Array.isArray(pkg.claims)) throw new Error('Sources and claims are required.');
-  assertSourceLinks(pkg);
+  assertSourceLinks(pkg, { allowUnresolved });
   assertEpisodes(pkg, { allowUnresolved });
+  const expectedDependencyHash = hash(dependencyValue(pkg));
+  if (pkg.dependencyHash !== expectedDependencyHash) throw new Error('Documentary dependency hash does not match current package content.');
   if (pkg.approval?.status === 'approved') {
     if (pkg.claims.some((claim) => claim.status !== 'VERIFIED') || allowUnresolved) throw new Error('Only fully verified packages may be approved.');
     if (!requiredOrNull(pkg.approval.approvalId) || !requiredOrNull(pkg.approval.actor) || !requiredOrNull(pkg.approval.approvedAt) || pkg.approval.dependencyHash !== pkg.dependencyHash) throw new Error('Documentary approval must be bound to the current revision, approvalId, actor, and approvedAt.');
@@ -101,27 +144,20 @@ function normalize(input, { allowUnresolved = false } = {}) {
   pkg.production = { providerCalls: false, published: false, ...(pkg.production ?? {}) };
   pkg.approval ??= { status: 'draft' };
   pkg.revision = pkg.revision ?? 1;
-  pkg.dependencyHash = hash({
-    revision: pkg.revision,
-    title: pkg.title,
-    subject: pkg.subject,
-    sources: pkg.sources,
-    claims: pkg.claims,
-    episodes: pkg.episodes,
-  });
+  pkg.dependencyHash = hash(dependencyValue(pkg));
   validateDocumentaryPackage(pkg, { allowUnresolved });
   return pkg;
 }
 
-export function createDocumentaryPackage(input) {
-  const pkg = normalize(input);
+export function createDocumentaryPackage(input, { allowUnresolved = false } = {}) {
+  const pkg = normalize(input, { allowUnresolved });
   return pkg;
 }
 
 export function createDraftDocumentaryPackage({ title, episodeCount = 3 } = {}) {
   if (!Number.isInteger(episodeCount) || episodeCount < 1) throw new Error('episodeCount must be a positive integer.');
   const claim = { id: 'claim-pending-1', text: 'Source-backed claim pending research.', sourceIds: ['source-pending-1'], status: 'REQUIRES VERIFICATION', type: 'FACT' };
-  const source = { id: 'source-pending-1', url: 'https://example.invalid/source-pending', publisher: 'Pending research', publicationDate: null, accessedAt: null, supportedClaim: 'No claim is asserted; replace this placeholder during research.', evidenceQuality: 'unverified', status: 'REQUIRES VERIFICATION' };
+  const source = { id: 'source-pending-1', url: 'https://example.invalid/source-pending', publisher: 'Pending research', publicationDate: null, dateRationale: 'Placeholder has no publication date; replace during research.', accessedAt: 'not-yet-researched', supportedClaim: 'No claim is asserted; replace this placeholder during research.', evidenceQuality: 'unverified', status: 'REQUIRES VERIFICATION' };
   const episodes = Array.from({ length: episodeCount }, (_, index) => ({
     id: `episode-${index + 1}`, title: `Episode ${index + 1}`,
     segments: NARRATIVE_PARTS.map((part) => ({ part, time: 'TBD', purpose: 'Research required.', narration: 'Narration requires verified research.', visual: 'Full-frame 16:9 still-image direction required.', evidence: ['claim-pending-1'], musicAndSound: 'TBD' })),
@@ -142,7 +178,7 @@ export function adaptDocumentaryPackage(pkg, changes = {}) {
 export function resumeDocumentaryPackage(pkg) {
   const next = clone(pkg);
   const previousHash = next.dependencyHash;
-  next.dependencyHash = hash({ revision: next.revision, title: next.title, subject: next.subject, sources: next.sources, claims: next.claims, episodes: next.episodes });
+  next.dependencyHash = hash(dependencyValue(next));
   if (next.approval?.status === 'approved' && next.approval.dependencyHash !== next.dependencyHash) next.approval = { status: 'needs-review', invalidatedReason: 'documentary sources, claims, or editorial revision changed' };
   if (previousHash !== next.dependencyHash && next.approval?.status === 'approved') next.approval = { status: 'needs-review', invalidatedReason: 'documentary dependency changed' };
   validateDocumentaryPackage(next, { allowUnresolved: next.approval?.status !== 'approved' });

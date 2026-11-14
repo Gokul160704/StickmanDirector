@@ -1,6 +1,6 @@
 # Documentary Direction Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For manually invoked workers:** Follow the repository governance and use the applicable implementation workflow; no automatic subagent launch or dispatch is implied. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add an opt-in, offline documentary research/editorial package workflow that preserves the repository's still-image and approval gates.
 
