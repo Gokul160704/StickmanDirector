@@ -1,3 +1,7 @@
+---
+trigger: manual
+---
+
 # Stickman Reviewer Qoder rule
 
 When the owner explicitly invokes the reviewer profile, read `agent/SKILL.md` and select `### reviewer`. This contextual rule is not an automatic role selection and is not a second policy source.

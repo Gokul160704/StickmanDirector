@@ -95,9 +95,9 @@ test('role selectors map exactly to their named canonical sections', () => {
   ]);
   for (const [relativePath, role] of expected) {
     const content = read(relativePath);
-    assert.match(content, new RegExp(role));
+    assert.match(content, new RegExp(`select(?:s)?[^\\n]*(?:###\\s*)?${role}\\b`, 'i'));
     const otherRole = role === 'reviewer' ? 'director-orchestrator' : 'reviewer';
-    assert.doesNotMatch(content, new RegExp(`select(?:s)?[^\\n]*${otherRole}`, 'i'));
+    assert.doesNotMatch(content, new RegExp(`select(?:s)?[^\\n]*(?:###\\s*)?${otherRole}\\b`, 'i'));
   }
 });
 

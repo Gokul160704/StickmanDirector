@@ -108,4 +108,3 @@
 - [ ] **Step 3: Review the exact diff against `origin/master`** and confirm only the scoped package/docs/tests changed.
 - [ ] **Step 4: Update Trello #26 with branch/SHA, tests, limitations, and explicit handoff to Chief.** Do not move to `Done`, merge, or claim independent acceptance.
 - [ ] **Step 5: Stop if the card is not manually moved to `Ready`; do not launch a Worker automatically.**
-
