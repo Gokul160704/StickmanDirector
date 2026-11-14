@@ -73,3 +73,15 @@ test('unknown provider outcomes remain durable and require reconciliation', asyn
   await assert.rejects(() => runner.run({ retryItemIds: [state.items[0].id] }), /reconciliation/i);
   const reconciled = await runner.reconcile(state.items[0].id, { status: 'absent', receipt: { itemId: state.items[0].id }, authorization: approval('reconcile') }); assert.equal(reconciled.status, 'failed');
 });
+
+test('missing usage is recorded as provisional while reported overage pauses for explicit continuation', async () => {
+  const { root, plan } = await fixture({ withCandidate: false });
+  const adapter = { async prepare({ items = [] } = {}) { return { totalCost: items.length, itemCosts: Object.fromEntries(items.map((item) => [item.id, 1])) }; }, async execute({ item }) { return { cost: 1, output: { path: item.outputPath, bytes: Buffer.from(`image-${item.id}`) }, receipt: { usage: { neurons: null, estimatedNeurons: 1, status: 'unreported' } }, provenance: { usageStatus: 'unreported' } }; } };
+  const runner = createReferenceSeedRunner({ plan, adapter, projectRoot: root, checkpointPath: path.join(root, 'state', 'checkpoint.json'), outputRoot: root, budget: { maxCost: 10 } });
+  const state = await runner.run(); assert.equal(state.status, 'needs-review'); assert.equal(state.items[0].provenance.usageStatus, 'unreported');
+
+  let overageCalls = 0; const overageAdapter = { async prepare({ items = [] } = {}) { return { totalCost: items.length, itemCosts: Object.fromEntries(items.map((item) => [item.id, 1])) }; }, async execute({ item }) { const over = overageCalls++ === 0; return { cost: over ? 2 : 1, requiresApproval: over, usageWarning: over ? 'reported overage' : null, output: { path: item.outputPath, bytes: Buffer.from(`over-${item.id}`) }, receipt: { usage: { neurons: over ? 2 : 1, status: 'reported' } } }; } };
+  const overageRunner = createReferenceSeedRunner({ plan: { ...plan, requestHash: `${plan.requestHash.slice(0, -1)}0` }, adapter: overageAdapter, projectRoot: root, checkpointPath: path.join(root, 'state', 'overage.json'), outputRoot: path.join(root, 'overage'), budget: { maxCost: 10 } });
+  await assert.rejects(() => overageRunner.run(), /continuation approval/i); assert.equal(overageRunner.getState().status, 'paused-usage'); assert.equal(overageRunner.getState().items[0].status, 'needs-approval');
+  const continued = await overageRunner.run({ usageApproval: { approvalId: 'continue-1', actor: 'owner', approvedAt: '2026-11-14T00:00:00Z', continue: true } }); assert.equal(continued.status, 'needs-review');
+});
