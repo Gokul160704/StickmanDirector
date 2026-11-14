@@ -64,3 +64,10 @@ test('human approval binds the immutable output and cannot overwrite it', async 
   const { root, registry, bundle, plan } = await fixture(1); const runner = createBatchRunner({ plan, referenceBundle: bundle, referenceRegistry: registry, adapter: provider(), checkpointPath: path.join(root, 'batch.json'), outputRoot: path.join(root, 'images'), budget: { maxCost: 0 } });
   await runner.run(); const before = runner.getState().items[0].output.contentHash; const approved = await runner.approve(plan.items[0].id, { approvalId: 'human-1', actor: 'reviewer', approvedAt: new Date().toISOString() }); assert.equal(approved.approval.outputHash, before); assert.equal(runner.getState().items[0].status, 'approved');
 });
+
+test('declared output paths are preflighted and returned bytes cannot forge hashes', async () => {
+  const { root, registry, bundle, plan } = await fixture(1); const outputRoot = path.join(root, 'images'); await mkdir(outputRoot); await writeFile(path.join(outputRoot, 'scene-1.png'), 'existing'); let calls = 0;
+  const pathAdapter = { prepare: async () => ({ totalCost: 0, outputPaths: { [plan.items[0].id]: 'scene-1.png' } }), execute: async () => { calls += 1; return { cost: 0, output: { path: 'scene-1.png', bytes: 'new' } }; } };
+  const blocked = createBatchRunner({ plan, referenceBundle: bundle, referenceRegistry: registry, adapter: pathAdapter, checkpointPath: path.join(root, 'path.json'), outputRoot, budget: { maxCost: 0 } }); await assert.rejects(() => blocked.run(), /already exists/); assert.equal(calls, 0);
+  const forged = createBatchRunner({ plan, referenceBundle: bundle, referenceRegistry: registry, adapter: { prepare: async () => ({ totalCost: 0 }), execute: async () => ({ cost: 0, output: { bytes: 'actual', contentHash: hash('forged') } }) }, checkpointPath: path.join(root, 'hash.json'), outputRoot: path.join(root, 'other-images'), budget: { maxCost: 0 } }); await assert.rejects(() => forged.run(), /does not match/);
+});

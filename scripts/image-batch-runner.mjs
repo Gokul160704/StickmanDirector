@@ -86,6 +86,7 @@ export function createBatchRunner({ plan, referenceBundle, referenceRegistry, ad
     const estimated = safeNumber(quote?.totalCost ?? quote?.cost ?? 0, 'provider estimate');
     if (estimated + state.spent > maxCost) { state.status = 'paused-budget'; await persist(); throw new Error('Approved batch budget is insufficient; no provider request was dispatched.'); }
     const itemCosts = quote?.itemCosts ?? {};
+    const outputPaths = quote?.outputPaths ?? {};
     const reservations = new Map(candidates.map((item) => {
       const value = itemCosts[item.id] ?? (candidates.length === 1 ? estimated : 0);
       if (estimated > 0 && candidates.length > 1 && itemCosts[item.id] === undefined) throw new Error('Per-item cost quotes are required before concurrent dispatch.');
@@ -94,12 +95,12 @@ export function createBatchRunner({ plan, referenceBundle, referenceRegistry, ad
     if (candidates.reduce((sum, item) => sum + reservations.get(item.id), 0) + state.spent > maxCost) { state.status = 'paused-budget'; await persist(); throw new Error('Per-item batch reservations exceed the approved budget; no provider request was dispatched.'); }
     if (quote?.outputPaths) for (const item of candidates) { const declared = quote.outputPaths[item.id]; if (declared) { const file = safeOutputPath(root, { path: declared }); await assertPathInsideRoot(root, file, 'Declared provider output path'); if (await exists(file)) throw new Error('Declared provider output already exists; dispatch refused.'); } }
     let cursor = 0; let firstError = null;
-    const worker = async () => { while (!firstError) { const item = candidates[cursor++]; if (!item) return; try { await executeItem(item, reservations.get(item.id)); } catch (error) { firstError ??= error; return; } } };
+    const worker = async () => { while (!firstError) { const item = candidates[cursor++]; if (!item) return; try { await executeItem(item, reservations.get(item.id), outputPaths[item.id]); } catch (error) { firstError ??= error; return; } } };
     await Promise.all(Array.from({ length: Math.min(concurrency, candidates.length) }, () => worker()));
     if (firstError) { state.status = 'failed'; await persist(); throw firstError; }
     state.status = state.items.every((item) => item.status === 'approved') ? 'approved' : state.items.some((item) => item.status === 'unknown') ? 'needs-reconciliation' : 'needs-review'; await persist(); return clone(state);
   }
-  async function executeItem(item, reservation = 0) {
+  async function executeItem(item, reservation = 0, declaredOutputPath) {
     if (TERMINAL.has(item.status) && item.status !== 'failed' && item.status !== 'needs-review') return;
     const attemptId = `${item.id}:${(item.attempts?.length ?? 0) + 1}`;
     if (state.spent + state.reserved + reservation > maxCost) throw new Error('Approved budget reservation is exhausted; provider dispatch refused.');
@@ -108,7 +109,13 @@ export function createBatchRunner({ plan, referenceBundle, referenceRegistry, ad
       const result = await adapter.execute({ item: clone(item), referenceBundle: clone(referenceBundle), attemptId });
       const cost = safeNumber(result?.cost ?? 0, 'provider cost'); if (cost > reservation || state.spent + cost > maxCost) { const error = new Error('Provider result exceeds its reserved approved budget.'); error.unknownOutcome = true; throw error; }
       const output = result.output ? { ...result.output, contentHash: contentHash(result.output) } : null; if (!output) throw new Error('Provider result must include an output.');
-      if (output.path) { const file = safeOutputPath(root, output); await assertPathInsideRoot(root, file, 'Provider output path'); if (await exists(file)) throw new Error('Refusing to overwrite an existing output.'); try { const stat = await lstat(file); if (stat.isSymbolicLink()) throw new Error('Output path cannot be a symlink.'); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
+      if (output.path) {
+        if (!declaredOutputPath || output.path !== declaredOutputPath) throw new Error('Provider output path must be declared and reserved during prepare.');
+        const file = safeOutputPath(root, output); await assertPathInsideRoot(root, file, 'Provider output path');
+        if (await exists(file)) { const actual = bytesHash(await readFile(file)); if (actual !== output.contentHash) throw new Error('Provider output file bytes do not match its contentHash.'); }
+        else if (output.bytes === undefined) throw new Error('Provider output file is missing and no returned bytes are available for verification.');
+        try { const stat = await lstat(file); if (stat.isSymbolicLink()) throw new Error('Output path cannot be a symlink.'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      }
       item.status = 'needs-review'; item.output = sanitize(output); item.receipt = sanitize(result.receipt ?? null); item.cost = cost; item.provenance = sanitize(result.provenance ?? {}); item.attempts[item.attempts.length - 1] = { ...item.attempts.at(-1), attemptId, status: 'succeeded', finishedAt: now(), cost, receipt: item.receipt }; state.spent += cost; state.reserved = Math.max(0, state.reserved - reservation); item.reservedCost = 0; await persist();
     } catch (error) {
       const unknown = error?.unknownOutcome === true;
