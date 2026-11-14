@@ -8,6 +8,7 @@ Reference seeding is an explicit, review-gated bootstrap stage for creating cand
 - Input candidates are consented, license-labelled, smaller than 512×512, and re-hashed from disk before preparation and live dispatch.
 - `createCloudflareWorkersAiReferenceSeedAdapter` supports `mock` by default. Live mode requires the exact model, fresh quote and authorization hashes, verified quota, explicit no-paid-overage approval, and scoped credentials.
 - `createReferenceSeedRunner` persists per-item checkpoints, bounds concurrency, refuses output collisions, records receipts and hashes, and preserves ambiguous provider outcomes as `unknown` until reconciled.
+- Provider usage is telemetry, not the image-integrity gate: a successful response without per-request neuron usage is preserved with `usageStatus: "unreported"` and a provisional quoted cost for later dashboard reconciliation. A reported cost above the item quote pauses the batch after preserving the output and requires explicit continuation approval; the hard budget and paid-overage prohibition remain enforced.
 - Every generated candidate remains `needs-review`. Only a human approval bound to the output SHA-256 can promote it into the continuity registry. Promotion does not itself freeze a four-kind scene bundle.
 
 The existing scene path continues to require an authentic frozen character/prop/environment/style bundle. Reference seeding must never be implemented by bypassing that assertion or by treating a candidate as approved.
