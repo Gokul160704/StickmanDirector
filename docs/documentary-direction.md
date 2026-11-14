@@ -6,7 +6,7 @@ The package preserves eight parts: opening hook; subject introduction; backgroun
 
 Use `source → claim → narration → shot` IDs. Record original URLs, publisher/author, publication and access dates, exact supported claims, evidence quality, status, and licensing/provenance. Interview questions are plans, never testimony. Treat vulnerable people, allegations, tragedies, private data, reconstructions, and archival material with care; label AI-generated reconstructions clearly and do not imply that credit alone grants permission.
 
-The repository adaptation is still-image-first: B-roll means full-frame 16:9 visual coverage directions for Google Flow stills, maps, charts, archival-inspired illustrations, or labeled reconstructions. It does not request t2v/i2v, clip mixing, or generated video. Existing AUDIO.md Gemini TTS, Flow, Boords, and FFmpeg workflows retain their own consent and approval gates. The documentary package is metadata and does not replace canonical schema-v1 `episode.json`.
+The repository adaptation is still-image-first: B-roll means full-frame 16:9 visual coverage directions for the selected approved still provider (Flow by default, separately authorized Cloudflare, or suitably licensed manual imports), maps, charts, archival-inspired illustrations, or labeled reconstructions. It does not request t2v/i2v, clip mixing, or generated video. Every provider retains its own capability, licensing, cost, provenance, watermark, and consent gates; no adapter is a silent fallback. Existing AUDIO.md Gemini TTS, Boords, and FFmpeg workflows retain separate approval gates. The documentary package is metadata and does not replace canonical schema-v1 `episode.json` or authorize publication.
 
 Create a local draft with:
 

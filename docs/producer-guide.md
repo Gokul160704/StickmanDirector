@@ -1,5 +1,35 @@
 # Offline Guided Producer
 
+## Choose a route
+
+Use the guided API (`scripts/producer-session.mjs`) when an application supplies
+answers programmatically. Use `node scripts/producer-cli.mjs --manual` for the
+non-interactive offline decision printout; it is not an interactive wizard and
+does not run a provider. For local multi-episode work, use:
+
+```text
+node scripts/producer-cli.mjs --series-create "Series name" "projects/series-name" --episodes 3
+node scripts/producer-cli.mjs --series "projects/series-name"
+node scripts/producer-cli.mjs --documentary-create "Demo Documentary" projects/demo-documentary --episodes 3
+```
+
+The documentary command writes a draft metadata package only. It is not the
+canonical `episode.json`, does not create Boords frames, and does not imply
+editorial, creative, provider, licensing, or publication acceptance.
+
+The end-to-end operator route is: choose Creative or Documentary; research and
+write the series bible/script; storyboard in Boords; approve a frozen reference
+bundle; select Flow by default, opt-in Cloudflare, or a licensed manual import;
+quote and authorize the exact still batch; generate/import and review each image;
+run separate Gemini narration and billing approval; add captions; validate and
+render the 1920x1080/30fps MP4 and SRT locally; then obtain independent human
+creative/release and publication approval. Offline planning and tests do not
+authorize any external step.
+
+Related contracts: [documentary direction](documentary-direction.md), [batch
+image workflow](batch-image-workflow.md), [stage architecture](stage-architecture.md),
+[Cloudflare provider](cloudflare-workers-ai-provider.md), and [portable agent](portable-agent.md).
+
 The portable entry point is `scripts/producer-session.mjs`. It builds on
 `scripts/producer-contract.mjs`; `episode.json` remains the canonical
 production manifest. The session is a local decision journal and does not
@@ -20,6 +50,12 @@ provider is documented and an entitlement record explicitly says it is
 available. An unavailable Boords, Flow, or Gemini TTS path throws a safe,
 actionable error and leaves the session unchanged; it never probes the
 provider or switches silently.
+
+The guided session's provider catalog is deliberately narrower than the
+provider-neutral image-batch layer. Cloudflare Workers AI is an opt-in adapter
+for separately authorized image batches, with its own capability, neuron,
+credential, quote, and live-consent checks; it is not silently selected by the
+guided session. Manual imports likewise require licensing and human review.
 
 The preferences stage also asks for an image-count mode (`recommended` or
 `custom`) and a pacing profile (`reflective`, `cinematic`, or `energetic`).

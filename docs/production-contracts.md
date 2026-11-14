@@ -8,7 +8,7 @@ the following machine-readable sections:
 - `continuity`: stable character, prop, and environment records maintained by the Director.
 - `storyboard`: Boords source and handoff format metadata.
 - `references`: approved reference asset paths and visual style anchor.
-- `production`: current stage (`research`, `script`, `continuity`, `storyboard`, `references`, `images`, `audio`, `captions`, `rendering`, or `QA`).
+- `production`: current stage (`research`, `script`, `continuity`, `storyboard`, `references`, `images`, `audio`, `captions`, `rendering`, or `QA`). Publication is a separate human-gated operation and is not a manifest stage.
 
 ## Resume and checkpoints
 
@@ -96,7 +96,7 @@ fractions are left 0.04, top 0.04, right 0.08, and bottom 0.10; the protected
 rectangle is derived from those margins. Per-scene profiles may override the
 episode profile. Profiles are normalized and SHA-256 hashed. Guided sessions
 persist the profile, and changing it invalidates storyboard and downstream
-approvals. Flow approval hashes may include this profile hash while requests
+approvals. Provider-bound approval hashes may include this profile hash while requests
 that predate the field retain their existing hash shape. Boords handoffs may
 include profile and read-only geometry preview metadata; their original image
 paths remain the source of truth.
