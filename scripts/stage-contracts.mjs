@@ -24,6 +24,12 @@ export function hashContract(value) {
   return `sha256:${createHash('sha256').update(JSON.stringify(canonicalize(value))).digest('hex')}`;
 }
 
+export function stageRequestPayload(request) {
+  return { contractVersion: request.contractVersion, stageId: request.stageId, episodeId: request.episodeId, input: clone(request.input), dependencyHash: request.dependencyHash, providerId: request.providerId, model: request.model, metadata: clone(request.metadata) };
+}
+
+export function stageRequestDigest(request) { return hashContract(stageRequestPayload(request)); }
+
 export function createStageDefinition({ id, name, description = '', inputKinds = [], outputKinds = [], requiresApproval = true } = {}) {
   id = required(id, 'stage id');
   name = required(name, 'stage name');
@@ -35,7 +41,7 @@ export function createStageRequest({ stageId, episodeId, input = {}, dependencyH
   stageId = required(stageId, 'stageId'); episodeId = required(episodeId, 'episodeId'); dependencyHash = required(dependencyHash, 'dependencyHash');
   providerId = required(providerId, 'providerId'); model = required(model, 'model');
   const base = { contractVersion: STAGE_CONTRACT_VERSION, stageId, episodeId, input: clone(input), dependencyHash, providerId, model, metadata: clone(metadata) };
-  return { ...base, id: hashContract(base), requestHash: hashContract(base) };
+  return { ...base, id: hashContract(base), requestHash: stageRequestDigest(base) };
 }
 
 export function createArtifactRecord({ id, kind, path, contentHash, provenance = {}, reviewStatus = 'needs-review' } = {}) {
