@@ -35,7 +35,7 @@ test('supports the required offline batch sizes without a hardcoded scene count'
 test('resume preserves succeeded and approved outputs and only retries selected failures', () => {
   let plan = createBatchPlan({ episodeId: 'ep-1', batchId: 'batch-36', providerId: 'manual', model: 'offline', scenes: Array.from({ length: 36 }, (_, i) => `scene-${i + 1}`), referenceBundle: refs(), dependencyHash: 'sha256:dep' });
   for (let i = 0; i < 18; i += 1) plan = recordBatchItem(plan, plan.items[i].id, { status: 'succeeded', output: { path: `images/${i}.png`, contentHash: `sha256:${i}` } });
-  plan = recordBatchItem(plan, plan.items[0].id, { status: 'approved', approval: { approvalId: 'approval-1', actor: 'reviewer', approvedAt: '2026-11-14T05:00:00.000Z' } });
+  plan = recordBatchItem(plan, plan.items[0].id, { status: 'approved', approval: { approvalId: 'approval-1', actor: 'reviewer', approvedAt: '2026-11-14T05:00:00.000Z', outputHash: plan.items[0].output.contentHash, requestHash: plan.items[0].requestHash, dependencyHash: plan.items[0].dependencyHash, referenceBundleHash: plan.items[0].referenceBundleHash } });
   plan = recordBatchItem(plan, plan.items[18].id, { status: 'failed', errorCode: 'timeout' });
   const resumed = resumeBatch(plan, { retryItemIds: [plan.items[18].id] });
   assert.equal(resumed.items[0].status, 'approved');

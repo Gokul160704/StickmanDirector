@@ -50,6 +50,7 @@ export function createContinuityReferenceRegistry({ rootDir: configuredRootDir, 
 
 export function freezeReferenceBundle(registry, referenceIds = []) {
   if (!registry?.snapshot) throw new Error('A continuity reference registry is required.');
+  if (!Array.isArray(referenceIds) || new Set(referenceIds).size !== referenceIds.length) throw new Error('Continuity reference bundle cannot contain duplicate IDs.');
   const references = referenceIds.map((id) => registry.get(id));
   const kinds = new Set(references.map((reference) => reference.kind));
   for (const requiredKind of KINDS) if (!kinds.has(requiredKind)) throw new Error(`Continuity bundle requires ${requiredKind} reference.`);

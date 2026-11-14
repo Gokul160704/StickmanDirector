@@ -27,9 +27,12 @@ export function createBatchPlan({ episodeId, batchId, providerId, model, scenes,
 export function recordBatchItem(plan, itemId, update = {}) {
   const item = plan.items.find((candidate) => candidate.id === itemId); if (!item) throw new Error(`Unknown batch item ${itemId}.`);
   if (!STATUSES.has(update.status)) throw new Error(`Unsupported batch item status ${update.status}.`);
+  const mutable = new Set(['status', 'output', 'errorCode', 'error', 'receipt', 'cost', 'provenance', 'approval', 'attemptId', 'attempts', 'retryRequested']);
+  for (const key of Object.keys(update)) if (!mutable.has(key)) throw new Error(`Batch identity field ${key} is immutable.`);
   if (item.status === 'approved' || (item.status === 'succeeded' && update.status !== 'approved')) throw new Error(`Cannot overwrite immutable completed ${item.status} batch item output.`);
   const allowed = { pending: new Set(['queued', 'running', 'succeeded', 'failed', 'needs-review']), queued: new Set(['running', 'failed', 'needs-review']), running: new Set(['succeeded', 'failed', 'needs-review']), failed: new Set(['queued']), 'needs-review': new Set(['queued']), succeeded: new Set(['approved']), approved: new Set() };
   if (update.status === 'approved' && (!update.approval?.approvalId || !update.approval?.actor || !Number.isFinite(Date.parse(update.approval.approvedAt)))) throw new Error('Approved batch items require approval provenance.');
+  if (update.status === 'approved' && (update.output || update.approval.outputHash !== item.output?.contentHash || update.approval.requestHash !== item.requestHash || update.approval.dependencyHash !== item.dependencyHash || update.approval.referenceBundleHash !== item.referenceBundleHash)) throw new Error('Approval must bind to the immutable request, references, dependency, and output hash.');
   if (!allowed[item.status]?.has(update.status)) throw new Error(`Invalid batch item transition ${item.status} -> ${update.status}.`);
   if (update.status === 'approved' && !item.output) throw new Error('Approved batch items require a completed output.');
   const nextItems = plan.items.map((candidate) => candidate.id === itemId ? { ...candidate, ...clone(update), ...(update.output ? { output: clone(update.output) } : {}) } : candidate);
