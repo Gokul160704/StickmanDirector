@@ -62,7 +62,7 @@ export function createBatchRunner({ plan, referenceBundle, referenceRegistry, ad
   async function persist() { state.updatedAt = now(); writeChain = writeChain.then(() => atomicWrite(statePath, state)); return writeChain; }
   async function load() {
     const saved = await readCheckpoint(statePath); if (!saved) return state;
-    if (saved.referenceBundleHash !== referenceBundle.bundleHash || saved.plan?.batchId !== plan.batchId) throw new Error('Checkpoint does not match the approved batch or reference bundle.');
+    if (saved.referenceBundleHash !== referenceBundle.bundleHash || saved.plan?.batchId !== plan.batchId || saved.plan?.providerId !== plan.providerId || saved.plan?.model !== plan.model || saved.plan?.dependencyHash !== plan.dependencyHash) throw new Error('Checkpoint does not match the approved batch provider, model, dependency, or reference bundle.');
     state = saved; return clone(state);
   }
   function eligible(item, retryIds) { return retryIds.size ? retryIds.has(item.id) : item.status === 'pending'; }
@@ -82,7 +82,10 @@ export function createBatchRunner({ plan, referenceBundle, referenceRegistry, ad
     const retryIds = new Set(retryItemIds); assertNoUnknown(retryIds);
     for (const id of retryIds) { const item = state.items.find((entry) => entry.id === id); if (!item) throw new Error(`Unknown batch item ${id}.`); if (!RETRYABLE.has(item.status)) throw new Error(`Only failed or needs-review items may be retried: ${id}.`); item.status = 'pending'; item.retryRequested = true; }
     const candidates = state.items.filter((item) => eligible(item, retryIds));
-    const quote = await adapter.prepare({ plan: clone(state.plan), referenceBundle: clone(referenceBundle), items: clone(candidates) });
+    // Preserve the authentic frozen-bundle marker for provider adapters. The
+    // runner already validates the bundle and passes it read-only; cloning it
+    // would erase the non-enumerable authenticity marker.
+    const quote = await adapter.prepare({ plan: clone(state.plan), referenceBundle, items: clone(candidates) });
     const estimated = safeNumber(quote?.totalCost ?? quote?.cost ?? 0, 'provider estimate');
     if (estimated + state.spent > maxCost) { state.status = 'paused-budget'; await persist(); throw new Error('Approved batch budget is insufficient; no provider request was dispatched.'); }
     const itemCosts = quote?.itemCosts ?? {};
@@ -106,7 +109,7 @@ export function createBatchRunner({ plan, referenceBundle, referenceRegistry, ad
     if (state.spent + state.reserved + reservation > maxCost) throw new Error('Approved budget reservation is exhausted; provider dispatch refused.');
     state.reserved += reservation; item.reservedCost = reservation; item.status = 'running'; item.attempts ??= []; item.attempts.push({ attemptId, startedAt: now(), status: 'running', requestHash: item.requestHash }); await persist();
     try {
-      const result = await adapter.execute({ item: clone(item), referenceBundle: clone(referenceBundle), attemptId });
+      const result = await adapter.execute({ item: clone(item), referenceBundle, attemptId });
       const cost = safeNumber(result?.cost ?? 0, 'provider cost'); if (cost > reservation || state.spent + cost > maxCost) { const error = new Error('Provider result exceeds its reserved approved budget.'); error.unknownOutcome = true; throw error; }
       const output = result.output ? { ...result.output, contentHash: contentHash(result.output) } : null; if (!output) throw new Error('Provider result must include an output.');
       if (output.path) {
