@@ -27,7 +27,8 @@ function text(value, name) { if (typeof value !== 'string' || !value.trim()) thr
 function finite(value, name, minimum = 0) { if (!Number.isFinite(value) || value < minimum) throw new Error(`${name} must be a finite number >= ${minimum}.`); return value; }
 function hash(value) { return `sha256:${createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex')}`; }
 function bytesHash(value) { return `sha256:${createHash('sha256').update(value).digest('hex')}`; }
-function modelCapability(model) { const capability = MODEL_CAPABILITIES[model]; if (!capability) throw new Error(`Unsupported Cloudflare Workers AI image model: ${model}.`); return capability; }
+export function getCloudflareImageCapability(model) { const capability = MODEL_CAPABILITIES[model]; if (!capability) throw new Error(`Unsupported Cloudflare Workers AI image model: ${model}.`); return clone(capability); }
+function modelCapability(model) { return getCloudflareImageCapability(model); }
 function tiles(width, height) { return Math.ceil(width / 512) * Math.ceil(height / 512); }
 function dimensionsFor(plan) { return { width: plan.imageSpec?.width ?? 1024, height: plan.imageSpec?.height ?? 576 }; }
 function assertDimensions(plan, capability) {
@@ -68,12 +69,12 @@ async function readReferenceInputs(bundle, projectRoot) {
   return inputs;
 }
 
-function decodeImage(response) {
+export function decodeCloudflareImage(response) {
   if (response?.image && typeof response.image === 'string') return Buffer.from(response.image, 'base64');
   if (response?.bytes) return Buffer.from(response.bytes);
   throw new Error('Cloudflare live response did not include its documented base64 image field.');
 }
-function assertImageBytes(bytes, expected) {
+export function assertCloudflareImageBytes(bytes, expected) {
   const png = bytes.length >= 24 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
   const jpeg = bytes.length >= 3 && bytes.subarray(0, 3).equals(Buffer.from([255, 216, 255]));
   const webp = bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP';
@@ -139,7 +140,7 @@ export function createCloudflareWorkersAiAdapter({ mode = 'mock', transport, pro
       let response;
       try { response = await transport({ accountId: process.env.CLOUDFLARE_ACCOUNT_ID, token: process.env.CLOUDFLARE_API_TOKEN, model: item.model, formData }); }
       catch (error) { const safe = String(error?.message ?? error).replaceAll(process.env.CLOUDFLARE_API_TOKEN, '[REDACTED]').replaceAll(process.env.CLOUDFLARE_ACCOUNT_ID, '[REDACTED]'); const ambiguous = new Error(safe); ambiguous.unknownOutcome = true; throw ambiguous; }
-      bytes = decodeImage(response); assertImageBytes(bytes, { width, height }); actualCost = finite(response.usage?.neurons, 'Cloudflare actual neuron usage');
+      bytes = decodeCloudflareImage(response); assertCloudflareImageBytes(bytes, { width, height }); actualCost = finite(response.usage?.neurons, 'Cloudflare actual neuron usage');
       if (actualCost > cost || authorization.spent + actualCost > authorization.maxCost || authorization.spent + actualCost > authorization.quota.remainingNeurons) { const ambiguous = new Error('Cloudflare actual usage exceeded the approved quote or quota.'); ambiguous.unknownOutcome = true; throw ambiguous; }
       providerReceipt = { provider: CLOUDFLARE_PROVIDER_ID, requestId: response.requestId ?? item.id, attemptId, mode: 'live', usage: { neurons: actualCost } };
     }
