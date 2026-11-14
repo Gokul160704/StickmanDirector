@@ -36,15 +36,27 @@ guards, not a promise of account entitlement.
 Import, capability inspection, planning, quoting, and tests make no network
 calls and require no credentials. Execution requires a fresh provider-specific
 authorization bound to the exact quote and request hash. Live mode additionally
-requires explicit live authorization, `CLOUDFLARE_ACCOUNT_ID`, and
-`CLOUDFLARE_API_TOKEN`; credentials are passed only to the injected transport,
-are never persisted, and are never included in receipts.
+requires explicit live authorization, verified remaining-neuron evidence,
+`CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_API_TOKEN`; credentials are passed
+only to the injected transport, are never persisted, and are redacted from
+ambiguous transport errors.
+
+The live transport receives the approved prompt text and a multipart `FormData`
+payload containing `input_image_0` through `input_image_3`, read from the
+hash-verified local reference files. It accepts Cloudflare's base64 `image`
+response, validates the raster signature and approved PNG dimensions, and
+records actual reported neuron usage. A transport failure after dispatch is
+classified as an unknown outcome, requiring receipt reconciliation before a
+retry.
 
 The adapter fails closed for unsupported models, more than four references,
-reference images at or above 512x512, non-16:9 dimensions, stale reference
-bundles, insufficient budget, missing credentials, and changed provider/model
-identity. Mock outputs remain `needs-review`; no generated image is accepted or
-published automatically. Flow watermark and provenance rules are unchanged.
+missing reference dimensions or current-byte verification, reference images at
+or above 512x512, non-16:9 dimensions, stale reference bundles, insufficient
+budget or verified remaining quota, missing credentials, and changed
+provider/model identity. The runner materializes returned bytes exclusively at
+the declared path and verifies the written hash. Mock outputs remain
+`needs-review`; no generated image is accepted or published automatically.
+Flow watermark and provenance rules are unchanged.
 
 ## Verification classification
 

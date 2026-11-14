@@ -117,6 +117,7 @@ export function createBatchRunner({ plan, referenceBundle, referenceRegistry, ad
         const file = safeOutputPath(root, output); await assertPathInsideRoot(root, file, 'Provider output path');
         if (await exists(file)) { const actual = bytesHash(await readFile(file)); if (actual !== output.contentHash) throw new Error('Provider output file bytes do not match its contentHash.'); }
         else if (output.bytes === undefined) throw new Error('Provider output file is missing and no returned bytes are available for verification.');
+        else { await writeFile(file, output.bytes, { flag: 'wx' }); const actual = bytesHash(await readFile(file)); if (actual !== output.contentHash) throw new Error('Materialized provider output bytes do not match its contentHash.'); }
         try { const stat = await lstat(file); if (stat.isSymbolicLink()) throw new Error('Output path cannot be a symlink.'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
       }
       item.status = 'needs-review'; item.output = sanitize(output); item.receipt = sanitize(result.receipt ?? null); item.cost = cost; item.provenance = sanitize(result.provenance ?? {}); item.attempts[item.attempts.length - 1] = { ...item.attempts.at(-1), attemptId, status: 'succeeded', finishedAt: now(), cost, receipt: item.receipt }; state.spent += cost; state.reserved = Math.max(0, state.reserved - reservation); item.reservedCost = 0; await persist();

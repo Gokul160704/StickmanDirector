@@ -24,12 +24,12 @@ async function fixture(count = 1, { model = CLOUDFLARE_FLUX_KLEIN_4B, dimensions
   }
   const bundle = freezeReferenceBundle(registry, refs.map(([id]) => id));
   const plan = createBatchPlan({ episodeId: 'episode-1', batchId: `cloudflare-${count}`, providerId: 'cloudflare-workers-ai', model, scenes: Array.from({ length: count }, (_, i) => `scene-${i + 1}`), referenceBundle: bundle, dependencyHash: hash('dependency') });
-  plan.imageSpec = { ...dimensions, variants: 1, promptHash: hash('prompt') };
+  plan.imageSpec = { ...dimensions, variants: 1, prompt: 'approved prompt for episode-1', promptHash: hash('prompt') };
   return { root, registry, bundle, plan };
 }
 
 function authorization(quote, extra = {}) {
-  return { approvalId: 'batch-approval-1', actor: 'owner', approvedAt: '2026-11-14T07:00:00.000Z', requestHash: quote.requestHash, quoteHash: quote.quoteHash, maxCost: quote.totalCost, ...extra };
+  return { approvalId: 'batch-approval-1', actor: 'owner', approvedAt: '2026-11-14T07:00:00.000Z', requestHash: quote.requestHash, quoteHash: quote.quoteHash, maxCost: quote.totalCost, quota: { remainingNeurons: quote.totalCost + 1000, evidenceId: 'quota-read-1' }, ...extra };
 }
 
 test('prepares a 36-image four-reference quote without network or credentials', async () => {
@@ -51,6 +51,18 @@ test('rejects a fifth reference and invalid non-16:9 dimensions before dispatch'
   const tooMany = { ...bundle, references: [...bundle.references, fifth] };
   await assert.rejects(() => adapter.prepare({ plan, referenceBundle: tooMany, items: [{ ...plan.items[0], referenceIds: tooMany.references.map((ref) => ref.id) }] }), /four|reference/i);
   await assert.rejects(() => adapter.prepare({ plan: { ...plan, imageSpec: { width: 1000, height: 700 } }, referenceBundle: bundle, items: plan.items }), /16:9|aspect/i);
+});
+
+test('requires every Cloudflare reference to carry verified dimensions', async () => {
+  const { root, registry, bundle, plan } = await fixture(1);
+  const original = registry.get('character-1');
+  registry.replace({ id: original.id, kind: original.kind, path: original.path, contentHash: original.contentHash, approved: true });
+  const incomplete = freezeReferenceBundle(registry, bundle.references.map((reference) => reference.id));
+  const incompletePlan = createBatchPlan({ episodeId: plan.episodeId, batchId: 'cloudflare-incomplete', providerId: plan.providerId, model: plan.model, scenes: ['scene-1'], referenceBundle: incomplete, dependencyHash: plan.dependencyHash });
+  incompletePlan.imageSpec = plan.imageSpec;
+  const adapter = createCloudflareWorkersAiAdapter({ mode: 'mock' });
+  await assert.rejects(() => adapter.prepare({ plan: incompletePlan, referenceBundle: incomplete, items: incompletePlan.items }), /dimensions|verified/i);
+  assert.equal(root.length > 0, true);
 });
 
 test('requires explicit provider authorization before even a mock execution', async () => {
@@ -78,6 +90,7 @@ test('runs exact mocked jobs through the merged batch runner with deterministic 
   assert.equal(state.items.length, 36);
   assert.equal(state.items.every((item) => item.status === 'needs-review'), true);
   assert.equal(new Set(state.items.map((item) => item.output.path)).size, 36);
+  assert.equal((await readFile(path.join(root, 'images', 'scene-1-v1.png'), 'utf8')).startsWith('MOCK-CLOUDFLARE-IMAGE:'), true);
   assert.equal(state.items.every((item) => item.provenance.referenceBundleHash === bundle.bundleHash), true);
   assert.equal(JSON.parse(await readFile(path.join(root, 'batch.json'), 'utf8')).spent, quote.totalCost);
 });
@@ -89,7 +102,7 @@ test('blocks an over-budget batch before any mock generation and never falls bac
   let calls = 0;
   const original = adapter.execute;
   adapter.execute = async (...args) => { calls += 1; return original(...args); };
-  await adapter.authorize(authorization(quote, { maxCost: quote.totalCost - 1 }));
+  await adapter.authorize(authorization(quote));
   const runner = createBatchRunner({ plan, referenceBundle: bundle, referenceRegistry: registry, adapter, checkpointPath: path.join(root, 'budget.json'), outputRoot: path.join(root, 'images'), budget: { maxCost: quote.totalCost - 1 } });
   await assert.rejects(() => runner.run(), /budget|authorized|quote/i);
   assert.equal(calls, 0);
@@ -101,6 +114,51 @@ test('does not permit live execution without explicit live authorization and sco
   const quote = await adapter.prepare({ plan, referenceBundle: bundle, items: plan.items });
   await assert.rejects(() => adapter.authorize(authorization(quote)), /live|credential|account/i);
   assert.equal(adapter.getSecurityState().credentialsPersisted, false);
+});
+
+test('builds live multipart reference inputs and records actual image usage', async () => {
+  const { root, registry, bundle, plan } = await fixture(1);
+  const png = Buffer.alloc(24); Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(png); png.writeUInt32BE(1024, 16); png.writeUInt32BE(576, 20);
+  const calls = [];
+  const originalAccount = process.env.CLOUDFLARE_ACCOUNT_ID; const originalToken = process.env.CLOUDFLARE_API_TOKEN;
+  process.env.CLOUDFLARE_ACCOUNT_ID = 'account-test'; process.env.CLOUDFLARE_API_TOKEN = 'opaque-token-test';
+  try {
+    const adapter = createCloudflareWorkersAiAdapter({ mode: 'live', projectRoot: root, referenceRegistry: registry, transport: async (request) => { calls.push(request); return { image: png.toString('base64'), requestId: 'cf-request-1', usage: { neurons: 12.5 } }; } });
+    const quote = await adapter.prepare({ plan, referenceBundle: bundle, items: plan.items });
+    await adapter.authorize(authorization(quote, { live: true, quota: { remainingNeurons: 1000, evidenceId: 'quota-live-1' } }));
+    const result = await adapter.execute({ item: plan.items[0], referenceBundle: bundle, attemptId: 'attempt-live-1' });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].model, CLOUDFLARE_FLUX_KLEIN_4B);
+    assert.equal(calls[0].formData.get('prompt'), 'approved prompt for episode-1');
+    assert.equal(calls[0].formData.get('input_image_0') instanceof Blob, true);
+    assert.equal(result.cost, 12.5);
+    assert.equal(result.output.bytes[0], 0x89);
+  } finally {
+    if (originalAccount === undefined) delete process.env.CLOUDFLARE_ACCOUNT_ID; else process.env.CLOUDFLARE_ACCOUNT_ID = originalAccount;
+    if (originalToken === undefined) delete process.env.CLOUDFLARE_API_TOKEN; else process.env.CLOUDFLARE_API_TOKEN = originalToken;
+  }
+});
+
+test('rejects live authorization when verified remaining quota is below the quote', async () => {
+  const { bundle, plan } = await fixture(1); const adapter = createCloudflareWorkersAiAdapter({ mode: 'live' });
+  const quote = await adapter.prepare({ plan, referenceBundle: bundle, items: plan.items });
+  const account = process.env.CLOUDFLARE_ACCOUNT_ID; const token = process.env.CLOUDFLARE_API_TOKEN; process.env.CLOUDFLARE_ACCOUNT_ID = 'account-test'; process.env.CLOUDFLARE_API_TOKEN = 'opaque-token-test';
+  try { await assert.rejects(() => adapter.authorize(authorization(quote, { live: true, quota: { remainingNeurons: quote.totalCost - 0.01, evidenceId: 'quota-low' } })), /quota|remaining|budget/i); }
+  finally { if (account === undefined) delete process.env.CLOUDFLARE_ACCOUNT_ID; else process.env.CLOUDFLARE_ACCOUNT_ID = account; if (token === undefined) delete process.env.CLOUDFLARE_API_TOKEN; else process.env.CLOUDFLARE_API_TOKEN = token; }
+});
+
+test('marks an ambiguous live transport failure as unknown and redacts the token', async () => {
+  const { root, registry, bundle, plan } = await fixture(1);
+  const originalAccount = process.env.CLOUDFLARE_ACCOUNT_ID; const originalToken = process.env.CLOUDFLARE_API_TOKEN;
+  process.env.CLOUDFLARE_ACCOUNT_ID = 'account-test'; process.env.CLOUDFLARE_API_TOKEN = 'opaque-token-test';
+  try {
+    const adapter = createCloudflareWorkersAiAdapter({ mode: 'live', projectRoot: root, referenceRegistry: registry, transport: async () => { throw new Error('connection lost opaque-token-test after acceptance'); } });
+    const quote = await adapter.prepare({ plan, referenceBundle: bundle, items: plan.items }); await adapter.authorize(authorization(quote, { live: true }));
+    await assert.rejects(() => adapter.execute({ item: plan.items[0], referenceBundle: bundle, attemptId: 'attempt-unknown-1' }), (error) => error.unknownOutcome === true && !String(error.message).includes('opaque-token-test'));
+  } finally {
+    if (originalAccount === undefined) delete process.env.CLOUDFLARE_ACCOUNT_ID; else process.env.CLOUDFLARE_ACCOUNT_ID = originalAccount;
+    if (originalToken === undefined) delete process.env.CLOUDFLARE_API_TOKEN; else process.env.CLOUDFLARE_API_TOKEN = originalToken;
+  }
 });
 
 test('rejects a resumed checkpoint when the selected provider or model changes', async () => {
