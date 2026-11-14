@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
+import { readFile as readTextFile } from 'node:fs/promises';
 
 import {
   adaptDocumentaryPackage,
@@ -123,6 +124,48 @@ test('requires documentary approval to be bound to the current revision and acto
   const pkg = input({ episodeCount: 1 });
   pkg.approval = { status: 'approved' };
   assert.throws(() => createDocumentaryPackage(pkg), /approval.*bound|approvalId|dependencyHash/i);
+});
+
+test('rejects an approved package whose content changed without a refreshed dependency digest', () => {
+  const pkg = createDocumentaryPackage(input({ episodeCount: 1 }));
+  pkg.approval = { status: 'approved', approvalId: 'human-demo', actor: 'owner', approvedAt: '2026-11-14T00:00:00.000Z', dependencyHash: pkg.dependencyHash };
+  pkg.claims[0].text = 'Tampered after approval.';
+  assert.throws(() => validateDocumentaryPackage(pkg), /dependency hash|digest|revision/i);
+});
+
+test('rejects verified claims whose source metadata is incomplete or unverifiable', () => {
+  const pkg = input({ episodeCount: 1 });
+  pkg.sources[0].url = 'not-a-url';
+  assert.throws(() => createDocumentaryPackage(pkg), /source.*url|URL/i);
+  const undated = input({ episodeCount: 1 });
+  undated.sources[0].publicationDate = null;
+  assert.throws(() => createDocumentaryPackage(undated), /date.*rationale|publication/i);
+});
+
+test('preserves conflicting claims in an unresolved draft but blocks approval', () => {
+  const pkg = input({ episodeCount: 1, claimStatus: 'CONFLICTING' });
+  const draft = createDocumentaryPackage(pkg, { allowUnresolved: true });
+  assert.equal(draft.claims[0].status, 'CONFLICTING');
+  draft.approval = { status: 'approved', approvalId: 'human-demo', actor: 'owner', approvedAt: '2026-11-14T00:00:00.000Z', dependencyHash: draft.dependencyHash };
+  assert.throws(() => validateDocumentaryPackage(draft), /CONFLICTING|verified|approval/i);
+});
+
+test('requires factual narration and segments to retain source lineage', () => {
+  const noNarration = input({ episodeCount: 1 });
+  noNarration.episodes[0].narration = [];
+  assert.throws(() => createDocumentaryPackage(noNarration), /narration/i);
+  const noEvidence = input({ episodeCount: 1 });
+  noEvidence.episodes[0].segments[0].evidence = [];
+  assert.throws(() => createDocumentaryPackage(noEvidence), /evidence/i);
+  const noFactClaims = input({ episodeCount: 1 });
+  noFactClaims.episodes[0].narration[0].claimIds = [];
+  assert.throws(() => createDocumentaryPackage(noFactClaims), /claim/i);
+});
+
+test('keeps documentary implementation plans manual and does not require automatic subagents', async () => {
+  const plan = await readTextFile(new URL('../docs/superpowers/plans/2026-11-14-documentary-direction.md', import.meta.url), 'utf8');
+  assert.doesNotMatch(plan, /REQUIRED SUB-SKILL:\s*Use superpowers:subagent-driven-development/i);
+  assert.match(plan, /manually invoked|manual/i);
 });
 
 test('keeps YouTube metadata draft-only and never calls providers', () => {
