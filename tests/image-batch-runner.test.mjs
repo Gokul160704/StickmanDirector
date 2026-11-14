@@ -71,3 +71,14 @@ test('declared output paths are preflighted and returned bytes cannot forge hash
   const blocked = createBatchRunner({ plan, referenceBundle: bundle, referenceRegistry: registry, adapter: pathAdapter, checkpointPath: path.join(root, 'path.json'), outputRoot, budget: { maxCost: 0 } }); await assert.rejects(() => blocked.run(), /already exists/); assert.equal(calls, 0);
   const forged = createBatchRunner({ plan, referenceBundle: bundle, referenceRegistry: registry, adapter: { prepare: async () => ({ totalCost: 0 }), execute: async () => ({ cost: 0, output: { bytes: 'actual', contentHash: hash('forged') } }) }, checkpointPath: path.join(root, 'hash.json'), outputRoot: path.join(root, 'other-images'), budget: { maxCost: 0 } }); await assert.rejects(() => forged.run(), /does not match/);
 });
+
+test('accepts a verified MIME-derived extension and atomically materializes the returned original bytes', async () => {
+  const { root, registry, bundle, plan } = await fixture(1); const outputRoot = path.join(root, 'images');
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x01, 0x00, 0x02, 0x03, 0x01, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xd9]);
+  const adapter = { prepare: async () => ({ totalCost: 0, outputPaths: { [plan.items[0].id]: 'scene-1-v1.png' } }), execute: async () => ({ cost: 0, output: { path: 'scene-1-v1.jpg', bytes: jpeg, mimeType: 'image/jpeg', extension: '.jpg', dimensions: { width: 2, height: 1 } }, receipt: { provider: 'offline', requestId: 'scene-1' } }) };
+  const result = await createBatchRunner({ plan, referenceBundle: bundle, referenceRegistry: registry, adapter, checkpointPath: path.join(root, 'batch.json'), outputRoot, budget: { maxCost: 0 } }).run();
+  assert.equal(result.items[0].output.path, 'scene-1-v1.jpg');
+  assert.deepEqual(await readFile(path.join(outputRoot, 'scene-1-v1.jpg')), jpeg);
+  const receipt = JSON.parse(await readFile(path.join(outputRoot, 'scene-1-v1.jpg.receipt.json'), 'utf8')); assert.equal(receipt.output.contentHash, result.items[0].output.contentHash); assert.equal(receipt.receipt.requestId, 'scene-1');
+  const { readdir } = await import('node:fs/promises'); assert.equal((await readdir(outputRoot)).some((name) => name.includes('.tmp-')), false);
+});

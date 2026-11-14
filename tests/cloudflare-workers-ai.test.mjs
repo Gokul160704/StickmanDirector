@@ -29,7 +29,7 @@ async function fixture(count = 1, { model = CLOUDFLARE_FLUX_KLEIN_4B, dimensions
 }
 
 function authorization(quote, extra = {}) {
-  return { approvalId: 'batch-approval-1', actor: 'owner', approvedAt: '2026-11-14T07:00:00.000Z', requestHash: quote.requestHash, quoteHash: quote.quoteHash, maxCost: quote.totalCost, quota: { remainingNeurons: quote.totalCost + 1000, evidenceId: 'quota-read-1' }, ...extra };
+  return { approvalId: 'batch-approval-1', actor: 'owner', approvedAt: '2026-11-14T07:00:00.000Z', requestHash: quote.requestHash, quoteHash: quote.quoteHash, maxCost: quote.totalCost, paidOverageAllowed: false, quota: { remainingNeurons: quote.totalCost + 1000, evidenceId: 'quota-read-1' }, ...extra };
 }
 
 test('prepares a 36-image four-reference quote without network or credentials', async () => {
@@ -145,6 +145,26 @@ test('rejects live authorization when verified remaining quota is below the quot
   const account = process.env.CLOUDFLARE_ACCOUNT_ID; const token = process.env.CLOUDFLARE_API_TOKEN; process.env.CLOUDFLARE_ACCOUNT_ID = 'account-test'; process.env.CLOUDFLARE_API_TOKEN = 'opaque-token-test';
   try { await assert.rejects(() => adapter.authorize(authorization(quote, { live: true, quota: { remainingNeurons: quote.totalCost - 0.01, evidenceId: 'quota-low' } })), /quota|remaining|budget/i); }
   finally { if (account === undefined) delete process.env.CLOUDFLARE_ACCOUNT_ID; else process.env.CLOUDFLARE_ACCOUNT_ID = account; if (token === undefined) delete process.env.CLOUDFLARE_API_TOKEN; else process.env.CLOUDFLARE_API_TOKEN = token; }
+});
+
+test('requires live approval to prohibit paid overage', async () => {
+  const { bundle, plan } = await fixture(1); const adapter = createCloudflareWorkersAiAdapter({ mode: 'live' });
+  const quote = await adapter.prepare({ plan, referenceBundle: bundle, items: plan.items });
+  const account = process.env.CLOUDFLARE_ACCOUNT_ID; const token = process.env.CLOUDFLARE_API_TOKEN; process.env.CLOUDFLARE_ACCOUNT_ID = 'account-test'; process.env.CLOUDFLARE_API_TOKEN = 'opaque-token-test';
+  try { await assert.rejects(() => adapter.authorize(authorization(quote, { live: true, paidOverageAllowed: true })), /overage/i); }
+  finally { if (account === undefined) delete process.env.CLOUDFLARE_ACCOUNT_ID; else process.env.CLOUDFLARE_ACCOUNT_ID = account; if (token === undefined) delete process.env.CLOUDFLARE_API_TOKEN; else process.env.CLOUDFLARE_API_TOKEN = token; }
+});
+
+test('records unreported live usage as provisional instead of zero', async () => {
+  const { root, registry, bundle, plan } = await fixture(1);
+  const account = process.env.CLOUDFLARE_ACCOUNT_ID; const token = process.env.CLOUDFLARE_API_TOKEN; process.env.CLOUDFLARE_ACCOUNT_ID = 'account-test'; process.env.CLOUDFLARE_API_TOKEN = 'opaque-token-test';
+  const png = Buffer.alloc(24); Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(png); png.writeUInt32BE(1024, 16); png.writeUInt32BE(576, 20);
+  try {
+    const adapter = createCloudflareWorkersAiAdapter({ mode: 'live', projectRoot: root, referenceRegistry: registry, transport: async () => ({ image: png.toString('base64'), requestId: 'cf-unreported-1' }) });
+    const quote = await adapter.prepare({ plan, referenceBundle: bundle, items: plan.items }); await adapter.authorize(authorization(quote, { live: true }));
+    const result = await adapter.execute({ item: plan.items[0], referenceBundle: bundle, attemptId: 'attempt-unreported-1' });
+    assert.equal(result.receipt.usage.status, 'unreported'); assert.equal(result.receipt.usage.neurons, null); assert.equal(result.cost, quote.itemCosts[plan.items[0].id]);
+  } finally { if (account === undefined) delete process.env.CLOUDFLARE_ACCOUNT_ID; else process.env.CLOUDFLARE_ACCOUNT_ID = account; if (token === undefined) delete process.env.CLOUDFLARE_API_TOKEN; else process.env.CLOUDFLARE_API_TOKEN = token; }
 });
 
 test('marks an ambiguous live transport failure as unknown and redacts the token', async () => {
